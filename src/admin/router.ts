@@ -156,6 +156,22 @@ export function createHubAdminRouter(opts: {
     res.json({ ok: true });
   });
 
+  r.put("/api/users/:id", requireAdmin, async (req: Request, res: Response) => {
+    const body = parseJsonBody(req) as { label?: string };
+    const label = String(body.label ?? "").trim();
+    if (!label) {
+      res.status(400).json({ error: "Campo label é obrigatório." });
+      return;
+    }
+    await store.load();
+    const updated = await store.updateUser(String(req.params.id ?? ""), label);
+    if (!updated) {
+      res.status(404).json({ error: "Utilizador não encontrado." });
+      return;
+    }
+    res.json({ user: updated });
+  });
+
   r.get(
     "/api/users/:id/tokens",
     requireAdmin,
@@ -499,6 +515,19 @@ export function createHubAdminRouter(opts: {
       hint:
         "Cliente MCP: X-MCP-Hub-User-Token = secret de API token. Templates admin (mcp_templates): utilizador preenche connection.headers sobre a definição base.",
     });
+  });
+
+  r.get("/app.js", async (_req: Request, res: Response) => {
+    if (!hubAdminEnabled) {
+      res.status(404).end();
+      return;
+    }
+    try {
+      const body = await readFile(join(adminPublicDir(), "app.js"), "utf8");
+      res.type("application/javascript; charset=utf-8").send(body);
+    } catch {
+      res.status(404).type("text/plain").send("// app.js em falta");
+    }
   });
 
   r.get("/", async (_req: Request, res: Response) => {

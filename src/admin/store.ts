@@ -201,6 +201,20 @@ export class HubUserStore {
     return { user };
   }
 
+  async updateUser(userId: string, label: string): Promise<HubUser | undefined> {
+    await this.load();
+    const u = this.data.users.find((x) => x.id === userId);
+    if (!u) {
+      return undefined;
+    }
+    const next = label.trim();
+    if (next) {
+      u.label = next;
+    }
+    await this.persist();
+    return u;
+  }
+
   async deleteUser(userId: string): Promise<boolean> {
     await this.load();
     const before = this.data.users.length;

@@ -415,10 +415,121 @@
       word-break: break-all;
     }
     .path-line code { background: transparent; padding: 0; }
+
+    main#main.main--app {
+      max-width: none;
+      margin: 0;
+      padding: 0;
+    }
+
+    .app-shell {
+      display: grid;
+      grid-template-columns: minmax(200px, 260px) 1fr;
+      min-height: calc(100vh - 8rem);
+    }
+    @media (max-width: 880px) {
+      .app-shell {
+        grid-template-columns: 1fr;
+      }
+      .sidebar {
+        border-right: none;
+        border-bottom: 1px solid var(--border);
+      }
+    }
+
+    .sidebar {
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      padding: 0.75rem 0 1.5rem;
+    }
+    .sidebar-nav {
+      display: flex;
+      flex-direction: column;
+      gap: 0.15rem;
+    }
+    .sidebar-nav a {
+      display: block;
+      padding: 0.65rem 1.15rem;
+      color: var(--text-secondary);
+      text-decoration: none;
+      font-size: 0.9rem;
+      font-weight: 500;
+      border-left: 3px solid transparent;
+    }
+    .sidebar-nav a:hover {
+      background: rgba(255, 255, 255, 0.05);
+      color: var(--text);
+    }
+    .sidebar-nav a[aria-current="page"] {
+      border-left-color: var(--accent);
+      background: var(--accent-muted);
+      color: var(--text);
+      font-weight: 700;
+    }
+
+    .main-col {
+      padding: 1rem 1.25rem 2.5rem;
+      max-width: 960px;
+    }
+
+    .data-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.875rem;
+    }
+    .data-table th,
+    .data-table td {
+      border: 1px solid var(--border);
+      padding: 0.55rem 0.7rem;
+      text-align: left;
+      vertical-align: top;
+    }
+    .data-table th {
+      background: var(--bg);
+      color: var(--muted);
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .data-table-wrap {
+      overflow-x: auto;
+      margin-top: 0.75rem;
+    }
+
+    .quick-grid {
+      display: grid;
+      gap: 0.75rem;
+      margin-top: 1rem;
+    }
+    @media (min-width: 560px) {
+      .quick-grid.cols-2 {
+        grid-template-columns: 1fr 1fr;
+      }
+    }
+    .card-link {
+      display: block;
+      padding: 1rem 1.15rem;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      background: var(--bg);
+      color: inherit;
+      text-decoration: none;
+      transition: border-color 0.15s ease, background 0.15s ease;
+    }
+    .card-link:hover {
+      border-color: var(--accent);
+      background: rgba(77, 159, 255, 0.06);
+    }
+    .card-link strong {
+      display: block;
+      margin-bottom: 0.35rem;
+      color: var(--accent);
+      font-size: 0.85rem;
+    }
   </style>
 </head>
 <body>
-  <a class="skip-link" href="#main">Saltar para o conteúdo</a>
+  <a class="skip-link" href="#appMain">Saltar para o conteúdo</a>
   <header class="site-header">
     <div class="site-header__inner">
       <p class="site-brand"><span class="site-brand__icon" aria-hidden="true">◆</span>MCP Hub</p>
@@ -443,709 +554,33 @@
     </section>
 
     <div id="appSection" class="hidden">
-      <section class="panel panel--toolbar" aria-labelledby="toolbar-heading">
-        <div class="panel__meta">
-          <h2 id="toolbar-heading" class="section-title" style="margin-bottom:0.25rem;">Painel</h2>
-          <p class="path-line">Utilizadores: <code id="dataPath"></code></p>
-          <p class="path-line">Registo: <code id="registryPath"></code></p>
-        </div>
-        <div class="btn-row" style="margin-top:0;">
-          <button type="button" class="secondary" id="btnLogout">Terminar sessão</button>
-        </div>
-      </section>
-
-      <section class="panel" aria-labelledby="new-user-heading">
-        <h2 id="new-user-heading" class="section-title">Novo utilizador</h2>
-        <label for="newLabel">Nome / etiqueta</label>
-        <input type="text" id="newLabel" placeholder="Equipa A" />
-        <button type="button" id="btnCreateUser">Criar utilizador</button>
-        <p id="createErr" class="feedback feedback--err hidden" role="alert" aria-live="polite"></p>
-        <p class="section-lead" style="margin-top:1rem;">Depois cria um ou mais <strong>API tokens</strong> na lista (cada um com o secret mostrado uma vez).</p>
-        <div id="newTokenWrap" class="hidden">
-          <p class="feedback feedback--ok">Guarda este <strong>secret</strong> — não volta a ser mostrado. Cabeçalho HTTP: <code>X-MCP-Hub-User-Token</code> no <strong>initialize</strong> do hub.</p>
-          <div class="token-box" id="newToken" tabindex="0" role="status" aria-label="Secret do API token"></div>
-        </div>
-      </section>
-
-      <section class="panel" aria-labelledby="registry-heading">
-        <h2 id="registry-heading" class="section-title">Registo MCP (catálogo)</h2>
-        <p class="section-lead">Novos documentos sobrepõem entradas com a mesma <code>key</code> no ficheiro JSON estático. Chave: letras, números, <code>_</code>, <code>-</code>, <code>.</code>.</p>
-        <div class="row cols-2">
-          <div>
-            <label for="newMcpKey">Chave única (ex. meu-wms-extra)</label>
-            <input type="text" id="newMcpKey" placeholder="meu-servico-mcp" />
+      <div class="app-shell">
+        <aside class="sidebar" aria-label="Navegação do painel">
+          <nav id="sidebarNav" class="sidebar-nav">
+            <a href="#/inicio">Início</a>
+            <a href="#/utilizadores">Utilizadores</a>
+            <a href="#/templates">Templates MCP</a>
+            <a href="#/catalogo">Catálogo MCP</a>
+            <a href="#/api-keys">API keys</a>
+            <a href="#/mcps">MCPs por API key</a>
+          </nav>
+        </aside>
+        <div class="main-col" id="appMain" tabindex="-1">
+          <div class="panel panel--toolbar" style="margin-bottom:1rem;">
+            <div class="panel__meta">
+              <h2 id="viewTitle" class="section-title" style="margin-bottom:0.35rem;">Painel</h2>
+              <p class="path-line"><strong>Utilizadores</strong> <code id="dataPath"></code></p>
+              <p class="path-line"><strong>Registo</strong> <code id="registryPath"></code></p>
+            </div>
+            <div class="btn-row" style="margin-top:0;">
+              <button type="button" class="secondary" id="btnLogout">Terminar sessão</button>
+            </div>
           </div>
-          <div>
-            <label for="newMcpLabel">Etiqueta</label>
-            <input type="text" id="newMcpLabel" placeholder="Serviço interno" />
-          </div>
+          <div id="appView" class="view-body"></div>
         </div>
-        <label for="newMcpDef">Definição MCP (stdio ou streamableHttp)</label>
-        <textarea id="newMcpDef">{
-  "streamableHttp": {
-    "url": "https://exemplo.mcp.eship.com.br/mcp",
-    "headers": {
-      "X-Eship-Api-Key": "${ESHIP_API_KEY}",
-      "X-Eship-Api-Base-Url": "https://fulle.eship.com.br/v3"
-    }
-  }
-}</textarea>
-        <div class="btn-row">
-          <button type="button" id="btnCreateMcp">Guardar no registo</button>
-          <button type="button" class="secondary" id="btnRefreshRegistry">Recarregar lista</button>
-        </div>
-        <p id="registryErr" class="feedback feedback--err hidden" role="alert" aria-live="polite"></p>
-        <ul class="users" id="registryList" aria-label="Documentos MCP no registo"></ul>
-      </section>
-
-      <section class="panel" aria-labelledby="tpl-heading">
-        <h2 id="tpl-heading" class="section-title">Templates MCP (definição base)</h2>
-        <p class="section-lead">O admin define URL/definição fixa; cada utilizador escolhe o template no token e preenche sobretudo <strong>cabeçalhos de acesso</strong> (JSON). Gravado no mesmo ficheiro que o registo <code>mcp_servers</code>.</p>
-        <div class="row cols-2">
-          <div>
-            <label for="tplKey">Chave do template (ex. eship-wms-padrao)</label>
-            <input type="text" id="tplKey" placeholder="meu-template-mcp" />
-          </div>
-          <div>
-            <label for="tplLabel">Etiqueta</label>
-            <input type="text" id="tplLabel" placeholder="WMS e-ship (base)" />
-          </div>
-        </div>
-        <label for="tplDesc">Descrição (opcional)</label>
-        <input type="text" id="tplDesc" placeholder="Quem usa preenche X-Eship-Api-Key e URL base nos headers." />
-        <label for="tplHeaderKeys">Cabeçalhos sugeridos para acesso (opcional, separados por vírgula)</label>
-        <input type="text" id="tplHeaderKeys" placeholder="X-Eship-Api-Key, X-Eship-Api-Base-Url" />
-        <label for="tplDef">Definição MCP base (stdio ou streamableHttp)</label>
-        <textarea id="tplDef" rows="8">{
-  "streamableHttp": {
-    "url": "https://exemplo.mcp.eship.com.br/mcp",
-    "headers": {
-      "X-Eship-Api-Key": "${ESHIP_API_KEY}",
-      "X-Eship-Api-Base-Url": "${ESHIP_API_BASE_URL}"
-    }
-  }
-}</textarea>
-        <div class="btn-row">
-          <button type="button" id="btnCreateTemplate">Guardar template</button>
-          <button type="button" class="secondary" id="btnRefreshTemplates">Recarregar lista</button>
-        </div>
-        <p id="templateErr" class="feedback feedback--err hidden" role="alert" aria-live="polite"></p>
-        <ul class="users" id="templateList" aria-label="Templates MCP"></ul>
-      </section>
-
-      <section class="panel" aria-labelledby="users-heading">
-        <h2 id="users-heading" class="section-title">Utilizadores, tokens e MCPs</h2>
-        <p class="section-lead">Cria tokens por utilizador e MCPs por token (URL directa, catálogo ou template administrativo).</p>
-        <div class="btn-row">
-          <button type="button" class="secondary" id="btnRefresh">Recarregar tudo</button>
-        </div>
-        <ul class="users" id="userList" aria-label="Lista de utilizadores"></ul>
-        <p id="listErr" class="feedback feedback--err hidden" role="alert" aria-live="polite"></p>
-      </section>
+      </div>
     </div>
   </main>
-  <script>
-    const $ = (id) => document.getElementById(id);
-    const api = (path, opts = {}) =>
-      fetch("/hub-admin/api" + path, {
-        credentials: "same-origin",
-        headers: { "Content-Type": "application/json", ...(opts.headers || {}) },
-        ...opts,
-      }).then(async (r) => {
-        const j = await r.json().catch(() => ({}));
-        if (!r.ok) throw new Error(j.error || r.statusText);
-        return j;
-      });
-
-    async function checkMe() {
-      try {
-        const j = await api("/me");
-        if (j.admin) {
-          $("loginSection").classList.add("hidden");
-          $("appSection").classList.remove("hidden");
-          loadConfig();
-          loadMcpTemplates();
-          loadUsers();
-          loadMcpRegistry();
-          $("main")?.focus({ preventScroll: true });
-        }
-      } catch { /* not logged */ }
-    }
-
-    async function loadConfig() {
-      try {
-        const j = await api("/config");
-        $("dataPath").textContent = j.usersFile || "";
-        $("registryPath").textContent = j.mcpRegistryFile || "";
-      } catch {
-        $("dataPath").textContent = "?";
-        $("registryPath").textContent = "?";
-      }
-    }
-
-    async function loadMcpRegistry() {
-      $("registryErr").classList.add("hidden");
-      try {
-        const { documents } = await api("/mcp-registry");
-        $("registryList").innerHTML = (documents || [])
-          .map(
-            (d) => `
-          <li class="user" data-doc-id="${esc(d._id)}">
-            <h3><code>${esc(d.key)}</code> — ${esc(d.label || "")}</h3>
-            <p class="sub" style="margin:0;">_id: ${esc(d._id)} · actualizado: ${esc(d.updatedAt || "")}</p>
-            <div class="btn-row">
-              <button type="button" class="secondary btn-edit-doc">Editar definição JSON</button>
-              <button type="button" class="danger btn-del-doc">Apagar do registo</button>
-            </div>
-          </li>`,
-          )
-          .join("");
-        $("registryList").querySelectorAll("[data-doc-id]").forEach((row) => {
-          const id = row.getAttribute("data-doc-id");
-          row.querySelector(".btn-del-doc").onclick = async () => {
-            if (!confirm("Remover este MCP do registo NoSQL? (volta a valer a entrada do ficheiro estático se existir.)")) return;
-            try {
-              await api(`/mcp-registry/${id}`, { method: "DELETE" });
-              loadMcpRegistry();
-              loadUsers();
-            } catch (e) {
-              alert(e.message);
-            }
-          };
-          row.querySelector(".btn-edit-doc").onclick = async () => {
-            const doc = (documents || []).find((x) => x._id === id);
-            if (!doc) return;
-            const raw = prompt(
-              "JSON completo da definição (streamableHttp ou command/args):",
-              JSON.stringify(doc.def, null, 2),
-            );
-            if (raw == null) return;
-            let def;
-            try {
-              def = JSON.parse(raw);
-            } catch {
-              alert("JSON inválido.");
-              return;
-            }
-            try {
-              await api(`/mcp-registry/${id}`, {
-                method: "PUT",
-                body: JSON.stringify({ def }),
-              });
-              loadMcpRegistry();
-              loadUsers();
-            } catch (e) {
-              alert(e.message);
-            }
-          };
-        });
-      } catch (e) {
-        $("registryErr").textContent = e.message;
-        $("registryErr").classList.remove("hidden");
-      }
-    }
-
-    async function loadMcpTemplates() {
-      $("templateErr").classList.add("hidden");
-      try {
-        const { templates } = await api("/mcp-templates");
-        $("templateList").innerHTML = (templates || [])
-          .map(
-            (d) => `
-          <li class="user" data-tpl-id="${esc(d._id)}">
-            <h3><code>${esc(d.key)}</code> — ${esc(d.label || "")}</h3>
-            <p class="sub" style="margin:0;">${esc(d.description || "")}</p>
-            <p class="sub" style="margin:0;">_id: ${esc(d._id)} · cabeçalhos sugeridos: <code>${esc((d.accessHeaderKeys || []).join(", ") || "—")}</code></p>
-            <div class="btn-row">
-              <button type="button" class="secondary btn-edit-tpl">Editar base e meta (JSON)</button>
-              <button type="button" class="danger btn-del-tpl">Apagar template</button>
-            </div>
-          </li>`,
-          )
-          .join("");
-        $("templateList").querySelectorAll("[data-tpl-id]").forEach((row) => {
-          const id = row.getAttribute("data-tpl-id");
-          row.querySelector(".btn-del-tpl").onclick = async () => {
-            if (!confirm("Apagar este template? MCPs de tokens que o usem deixarão de resolver.")) return;
-            try {
-              await api(`/mcp-templates/${id}`, { method: "DELETE" });
-              loadMcpTemplates();
-              loadUsers();
-            } catch (e) {
-              alert(e.message);
-            }
-          };
-          row.querySelector(".btn-edit-tpl").onclick = async () => {
-            const doc = (templates || []).find((x) => x._id === id);
-            if (!doc) return;
-            const raw = prompt(
-              "JSON com campos opcionais: key, label, description, accessHeaderKeys (array), def",
-              JSON.stringify(
-                {
-                  key: doc.key,
-                  label: doc.label,
-                  description: doc.description,
-                  accessHeaderKeys: doc.accessHeaderKeys,
-                  def: doc.def,
-                },
-                null,
-                2,
-              ),
-            );
-            if (raw == null) return;
-            let patch;
-            try {
-              patch = JSON.parse(raw);
-            } catch {
-              alert("JSON inválido.");
-              return;
-            }
-            try {
-              await api(`/mcp-templates/${id}`, {
-                method: "PUT",
-                body: JSON.stringify(patch),
-              });
-              loadMcpTemplates();
-              loadUsers();
-            } catch (e) {
-              alert(e.message);
-            }
-          };
-        });
-      } catch (e) {
-        $("templateErr").textContent = e.message;
-        $("templateErr").classList.remove("hidden");
-      }
-    }
-
-    function esc(s) {
-      const d = document.createElement("div");
-      d.textContent = s;
-      return d.innerHTML;
-    }
-
-    async function loadUsers() {
-      $("listErr").classList.add("hidden");
-      try {
-        const { users } = await api("/users");
-        const { servers } = await api("/servers");
-        const tplRes = await api("/mcp-templates").catch(() => ({ templates: [] }));
-        const tplList = tplRes.templates || [];
-        const tplOpts =
-          tplList.length > 0
-            ? tplList
-                .map(
-                  (x) =>
-                    `<option value="${esc(x._id)}" data-hint="${esc((x.accessHeaderKeys || []).join(", "))}">${esc(x.label)} (${esc(x.key)})</option>`,
-                )
-                .join("")
-            : '<option value="">(sem templates — cria na secção Templates)</option>';
-        const serverOpts =
-          (servers || []).length > 0
-            ? (servers || []).map((s) => `<option value="${esc(s)}">${esc(s)}</option>`).join("")
-            : '<option value="">(sem chaves no catálogo)</option>';
-
-        const enriched = await Promise.all(
-          (users || []).map(async (u) => {
-            const tokens = await Promise.all(
-              (u.tokens || []).map(async (t) => {
-                const { mcps } = await api(`/tokens/${t.id}/mcps`);
-                return { ...t, mcps: mcps || [] };
-              }),
-            );
-            return { ...u, tokens };
-          }),
-        );
-
-        $("userList").innerHTML = enriched
-          .map(
-            (u) => `
-          <li class="user" data-user="${esc(u.id)}">
-            <h3>${esc(u.label)} <span class="sub" style="font-weight:normal;">(${esc(u.id)})</span></h3>
-            <div class="user-actions">
-              <button type="button" class="secondary btn-new-token">Novo API token</button>
-              <button type="button" class="danger btn-del-user">Apagar utilizador</button>
-            </div>
-            <h4 class="tokens-heading">Tokens</h4>
-            ${(u.tokens || [])
-              .map(
-                (t) => `
-            <details class="token-block" open data-token-id="${esc(t.id)}">
-              <summary id="sum-${esc(t.id)}">${esc(t.label || "token")} <span class="sub" style="font-weight:normal;">· ${esc(t.id)}</span></summary>
-              <div class="btn-row">
-                <button type="button" class="danger btn-revoke-token" data-tid="${esc(t.id)}">Revogar token</button>
-              </div>
-              <p class="sub" style="margin:0.35rem 0 0;">MCPs deste token</p>
-              <ul class="links" aria-label="MCPs ligados a este token">
-                ${(t.mcps || [])
-                  .map(
-                    (m) => `
-                <li class="mcp-row" data-mcp="${esc(m.id)}">
-                  <div class="mcp-row__main"><strong>${esc(m.label || m.id)}</strong>
-                    ${
-                      m.url
-                        ? `<span class="sub"> · URL directa</span>`
-                        : m.templateId
-                          ? (() => {
-                              const tt = tplList.find((x) => x._id === m.templateId);
-                              return `<span class="sub"> · template: ${esc(tt ? `${tt.label} (${tt.key})` : m.templateId)}</span>`;
-                            })()
-                          : `<span class="sub"> · catálogo: ${esc(m.templateServerKey || "")}</span>`
-                    }
-                  </div>
-                  <div class="mcp-row__actions">
-                    <button type="button" class="secondary btn-edit-mcp" data-tid="${esc(t.id)}" data-mid="${esc(m.id)}">Editar</button>
-                    <button type="button" class="danger btn-del-mcp" data-tid="${esc(t.id)}" data-mid="${esc(m.id)}">Remover</button>
-                  </div>
-                </li>`,
-                  )
-                  .join("")}
-              </ul>
-              <div class="row cols-2" style="margin-top:0.75rem;">
-                <div>
-                  <label class="label-like" for="mode-${esc(t.id)}">Modo de ligação</label>
-                  <select class="mcp-mode" id="mode-${esc(t.id)}" aria-label="Modo de ligação MCP">
-                    <option value="direct">URL directa (streamable HTTP)</option>
-                    <option value="catalog">MCP do catálogo (chave global)</option>
-                    <option value="admintpl">Template administrativo (só headers de acesso)</option>
-                  </select>
-                </div>
-                <div>
-                  <label class="label-like" for="lbl-${esc(t.id)}">Etiqueta do MCP (opcional)</label>
-                  <input type="text" class="mcp-label" id="lbl-${esc(t.id)}" placeholder="ex. produção" autocomplete="off" />
-                </div>
-              </div>
-              <div class="mcp-direct-fields">
-                <label class="label-like">URL do MCP</label>
-                <input type="text" class="mcp-url" placeholder="https://…/mcp" autocomplete="off" />
-                <label class="label-like" style="margin-top:0.65rem;">Headers (JSON)</label>
-                <textarea class="mcp-headers" rows="3" aria-label="Cabeçalhos HTTP em JSON">{}</textarea>
-                <label class="label-like" style="margin-top:0.65rem;">Env placeholders (JSON, opcional)</label>
-                <textarea class="mcp-env" rows="2" aria-label="Variáveis de ambiente em JSON">{}</textarea>
-              </div>
-              <div class="mcp-catalog-fields hidden">
-                <label class="label-like">Chave no hub</label>
-                <select class="mcp-catalog-key" aria-label="Chave MCP no catálogo global">${serverOpts}</select>
-                <label class="label-like" style="margin-top:0.65rem;">Connection overrides (JSON)</label>
-                <textarea class="mcp-conn" rows="4" aria-label="JSON de connection">${esc(JSON.stringify({ headers: {}, env: {} }, null, 2))}</textarea>
-              </div>
-              <div class="mcp-admintpl-fields hidden">
-                <label class="label-like">Template base</label>
-                <select class="mcp-admin-template-id" aria-label="Template administrativo">${tplOpts}</select>
-                <p class="sub mcp-tpl-hint" style="margin:0.35rem 0 0;" role="note"></p>
-                <label class="label-like" style="margin-top:0.65rem;">Cabeçalhos de acesso (JSON → <code>connection.headers</code>)</label>
-                <textarea class="mcp-access-headers" rows="4" aria-label="Cabeçalhos de acesso em JSON">{}</textarea>
-              </div>
-              <div class="btn-row">
-                <button type="button" class="btn-add-mcp" data-tid="${esc(t.id)}">Adicionar MCP</button>
-              </div>
-            </details>`,
-              )
-              .join("")}
-            ${(u.tokens || []).length === 0 ? "<p class=\"sub\">Sem tokens — cria um para obter o secret.</p>" : ""}
-          </li>`,
-          )
-          .join("");
-
-        $("userList").querySelectorAll(".user").forEach((card) => {
-          const userId = card.getAttribute("data-user");
-          card.querySelector(".btn-new-token").onclick = async () => {
-            const lab = prompt("Etiqueta do token (opcional):", "default");
-            if (lab === null) return;
-            try {
-              const j = await api(`/users/${userId}/tokens`, {
-                method: "POST",
-                body: JSON.stringify({ label: lab }),
-              });
-              $("newToken").textContent = j.secret;
-              $("newTokenWrap").classList.remove("hidden");
-              $("newToken")?.focus();
-              loadUsers();
-            } catch (e) {
-              alert(e.message);
-            }
-          };
-          card.querySelector(".btn-del-user").onclick = async () => {
-            if (!confirm("Apagar utilizador, todos os tokens e MCPs?")) return;
-            try {
-              await api(`/users/${userId}`, { method: "DELETE" });
-              loadUsers();
-            } catch (e) {
-              alert(e.message);
-            }
-          };
-          card.querySelectorAll(".btn-revoke-token").forEach((btn) => {
-            btn.onclick = async () => {
-              const tid = btn.getAttribute("data-tid");
-              if (!confirm("Revogar este token e apagar todos os MCPs associados?")) return;
-              try {
-                await api(`/users/${userId}/tokens/${tid}`, { method: "DELETE" });
-                loadUsers();
-              } catch (e) {
-                alert(e.message);
-              }
-            };
-          });
-          card.querySelectorAll("details.token-block").forEach((det) => {
-            const modeSel = det.querySelector(".mcp-mode");
-            const directF = det.querySelector(".mcp-direct-fields");
-            const catF = det.querySelector(".mcp-catalog-fields");
-            const admF = det.querySelector(".mcp-admintpl-fields");
-            const tplSel = det.querySelector(".mcp-admin-template-id");
-            const tplHint = det.querySelector(".mcp-tpl-hint");
-            if (!modeSel || !directF || !catF || !admF || !tplSel || !tplHint) {
-              return;
-            }
-            const syncTplHint = () => {
-              const opt = tplSel.selectedOptions[0];
-              const h = opt ? opt.getAttribute("data-hint") : "";
-              tplHint.textContent = h
-                ? `Sugestão de cabeçalhos: ${h}`
-                : "Preenche os valores reais de API / URL no JSON abaixo.";
-            };
-            tplSel.onchange = syncTplHint;
-            syncTplHint();
-            const syncMode = () => {
-              const v = modeSel.value;
-              directF.classList.toggle("hidden", v !== "direct");
-              catF.classList.toggle("hidden", v !== "catalog");
-              admF.classList.toggle("hidden", v !== "admintpl");
-            };
-            modeSel.onchange = () => {
-              syncMode();
-              if (modeSel.value === "admintpl") {
-                syncTplHint();
-              }
-            };
-            syncMode();
-            det.querySelector(".btn-add-mcp").onclick = async () => {
-              const tid = det.querySelector(".btn-add-mcp").getAttribute("data-tid");
-              const mode = modeSel.value;
-              let body = {};
-              try {
-                if (mode === "direct") {
-                  const url = det.querySelector(".mcp-url").value.trim();
-                  const headers = JSON.parse(det.querySelector(".mcp-headers").value || "{}");
-                  const env = JSON.parse(det.querySelector(".mcp-env").value || "{}");
-                  body = {
-                    label: det.querySelector(".mcp-label").value.trim() || undefined,
-                    url,
-                    headers,
-                    env: Object.keys(env).length ? env : undefined,
-                  };
-                } else if (mode === "catalog") {
-                  const templateServerKey = det.querySelector(".mcp-catalog-key").value.trim();
-                  const connection = JSON.parse(det.querySelector(".mcp-conn").value || "{}");
-                  body = {
-                    label: det.querySelector(".mcp-label").value.trim() || undefined,
-                    templateServerKey,
-                    connection,
-                  };
-                } else {
-                  const templateId = det.querySelector(".mcp-admin-template-id").value.trim();
-                  if (!templateId) {
-                    alert("Escolhe um template administrativo.");
-                    return;
-                  }
-                  const headers = JSON.parse(det.querySelector(".mcp-access-headers").value || "{}");
-                  body = {
-                    label: det.querySelector(".mcp-label").value.trim() || undefined,
-                    templateId,
-                    connection: { headers },
-                  };
-                }
-              } catch {
-                alert("JSON inválido (headers, env ou connection).");
-                return;
-              }
-              try {
-                await api(`/tokens/${tid}/mcps`, {
-                  method: "POST",
-                  body: JSON.stringify(body),
-                });
-                loadUsers();
-              } catch (e) {
-                alert(e.message);
-              }
-            };
-          });
-          card.querySelectorAll(".btn-del-mcp").forEach((btn) => {
-            btn.onclick = async () => {
-              const tid = btn.getAttribute("data-tid");
-              const mid = btn.getAttribute("data-mid");
-              if (!confirm("Remover este MCP?")) return;
-              try {
-                await api(`/tokens/${tid}/mcps/${mid}`, { method: "DELETE" });
-                loadUsers();
-              } catch (e) {
-                alert(e.message);
-              }
-            };
-          });
-          card.querySelectorAll(".btn-edit-mcp").forEach((btn) => {
-            btn.onclick = async () => {
-              const tid = btn.getAttribute("data-tid");
-              const mid = btn.getAttribute("data-mid");
-              const li = btn.closest("li.mcp-row");
-              const m = (enriched.find((x) => x.id === userId).tokens || []).find((x) => x.id === tid)?.mcps?.find((x) => x.id === mid);
-              if (!m) return;
-              const raw = prompt(
-                "Editar MCP (JSON): label, url, headers, env, templateServerKey, templateId, connection (um modo: url OU templateServerKey OU templateId)",
-                JSON.stringify(
-                  {
-                    label: m.label,
-                    url: m.url,
-                    headers: m.headers,
-                    env: m.env,
-                    templateServerKey: m.templateServerKey,
-                    templateId: m.templateId,
-                    connection: m.connection,
-                  },
-                  null,
-                  2,
-                ),
-              );
-              if (raw == null) return;
-              let patch;
-              try {
-                patch = JSON.parse(raw);
-              } catch {
-                alert("JSON inválido.");
-                return;
-              }
-              try {
-                await api(`/tokens/${tid}/mcps/${mid}`, {
-                  method: "PUT",
-                  body: JSON.stringify(patch),
-                });
-                loadUsers();
-              } catch (e) {
-                alert(e.message);
-              }
-            };
-          });
-        });
-      } catch (e) {
-        $("listErr").textContent = e.message;
-        $("listErr").classList.remove("hidden");
-      }
-    }
-
-    $("loginForm").onsubmit = async (e) => {
-      e.preventDefault();
-      $("loginErr").classList.add("hidden");
-      try {
-        await api("/login", {
-          method: "POST",
-          body: JSON.stringify({ password: $("adminPw").value }),
-        });
-        $("loginSection").classList.add("hidden");
-        $("appSection").classList.remove("hidden");
-        loadConfig();
-        loadMcpTemplates();
-        loadUsers();
-        loadMcpRegistry();
-        $("main")?.focus({ preventScroll: true });
-      } catch (err) {
-        $("loginErr").textContent = err.message;
-        $("loginErr").classList.remove("hidden");
-      }
-    };
-
-    $("btnLogout").onclick = async () => {
-      await api("/logout", { method: "POST" });
-      $("appSection").classList.add("hidden");
-      $("loginSection").classList.remove("hidden");
-      $("newTokenWrap").classList.add("hidden");
-      $("adminPw")?.focus();
-    };
-
-    $("btnCreateUser").onclick = async () => {
-      $("createErr").classList.add("hidden");
-      $("newTokenWrap").classList.add("hidden");
-      try {
-        await api("/users", {
-          method: "POST",
-          body: JSON.stringify({ label: $("newLabel").value }),
-        });
-        loadUsers();
-      } catch (e) {
-        $("createErr").textContent = e.message;
-        $("createErr").classList.remove("hidden");
-      }
-    };
-
-    $("btnRefresh").onclick = () => {
-      loadMcpTemplates();
-      loadUsers();
-      loadMcpRegistry();
-    };
-
-    $("btnRefreshTemplates").onclick = () => loadMcpTemplates();
-
-    $("btnCreateTemplate").onclick = async () => {
-      $("templateErr").classList.add("hidden");
-      let def;
-      try {
-        def = JSON.parse($("tplDef").value || "{}");
-      } catch {
-        $("templateErr").textContent = "JSON da definição base inválido.";
-        $("templateErr").classList.remove("hidden");
-        return;
-      }
-      const keysRaw = $("tplHeaderKeys").value.trim();
-      const accessHeaderKeys = keysRaw
-        ? keysRaw.split(",").map((s) => s.trim()).filter(Boolean)
-        : undefined;
-      try {
-        await api("/mcp-templates", {
-          method: "POST",
-          body: JSON.stringify({
-            key: $("tplKey").value,
-            label: $("tplLabel").value,
-            description: $("tplDesc").value.trim() || undefined,
-            accessHeaderKeys,
-            def,
-          }),
-        });
-        loadMcpTemplates();
-        loadUsers();
-      } catch (e) {
-        $("templateErr").textContent = e.message;
-        $("templateErr").classList.remove("hidden");
-      }
-    };
-
-    $("btnRefreshRegistry").onclick = () => loadMcpRegistry();
-
-    $("btnCreateMcp").onclick = async () => {
-      $("registryErr").classList.add("hidden");
-      let def;
-      try {
-        def = JSON.parse($("newMcpDef").value || "{}");
-      } catch {
-        $("registryErr").textContent = "JSON da definição inválido.";
-        $("registryErr").classList.remove("hidden");
-        return;
-      }
-      try {
-        await api("/mcp-registry", {
-          method: "POST",
-          body: JSON.stringify({
-            key: $("newMcpKey").value,
-            label: $("newMcpLabel").value,
-            def,
-          }),
-        });
-        loadMcpRegistry();
-        loadUsers();
-      } catch (e) {
-        $("registryErr").textContent = e.message;
-        $("registryErr").classList.remove("hidden");
-      }
-    };
-
-    checkMe();
-  </script>
+  <script type="module" src="/hub-admin/app.js"></script>
 </body>
 </html>
