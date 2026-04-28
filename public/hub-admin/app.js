@@ -28,6 +28,29 @@ async function api(path, opts = {}) {
   return j;
 }
 
+/** Navegação do selector «MCPs por API key» (#/mcps sem token). Chamado por delegação em #appView ou Enter no #pickTok. */
+function tryNavigateMcpsPicker() {
+  const pick = $("pickTok");
+  const errEl = $("pickTokErr");
+  if (!pick) return;
+  const v = pick.value.trim();
+  if (!v) {
+    if (errEl) {
+      errEl.textContent = "Escolhe uma API key na lista.";
+      errEl.classList.remove("hidden");
+    }
+    pick.focus();
+    return;
+  }
+  if (errEl) errEl.classList.add("hidden");
+  const next = `#/mcps/${v}`;
+  if (location.hash === next) {
+    void render();
+  } else {
+    location.hash = next;
+  }
+}
+
 function parseRoute() {
   let h = location.hash || "#/inicio";
   h = h.replace(/^#/, "");
@@ -890,7 +913,7 @@ async function renderMcps(view, tokenId) {
         <h3 class="section-title">Seleccionar API key</h3>
         <p class="section-lead">Escolhe o token para gerir os MCPs vinculados (URL, catálogo ou template admin + variáveis).</p>
         <label for="pickTok">Token</label>
-        <select id="pickTok">
+        <select id="pickTok" aria-describedby="pickTokErr">
           <option value="">— Escolher —</option>
           ${flat
             .map(
@@ -899,18 +922,17 @@ async function renderMcps(view, tokenId) {
             )
             .join("")}
         </select>
+        <p id="pickTokErr" class="feedback feedback--err hidden" role="alert"></p>
         <div class="btn-row">
           <button type="button" id="btnGoMcps">Abrir</button>
         </div>
       </div>`;
-    $("btnGoMcps").onclick = () => {
-      const v = $("pickTok").value;
-      if (!v) {
-        alert("Escolhe uma API key.");
-        return;
+    $("pickTok")?.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        tryNavigateMcpsPicker();
       }
-      location.hash = "#/mcps/" + v;
-    };
+    });
     return;
   }
 
@@ -1125,6 +1147,11 @@ window.addEventListener("hashchange", () => {
   if (!$("appSection")?.classList.contains("hidden")) {
     void render();
   }
+});
+
+$("appView")?.addEventListener("click", (ev) => {
+  if (!ev.target.closest("#btnGoMcps")) return;
+  tryNavigateMcpsPicker();
 });
 
 void checkMe();

@@ -3,35 +3,55 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta name="color-scheme" content="dark" />
-  <title>MCP Hub — Administração</title>
+  <meta name="color-scheme" content="light" />
+  <title>e-Ship · MCP Hub — Administração</title>
+  <link rel="icon" href="https://eship.com.br/wp-content/uploads/circulo-favicon.svg" type="image/svg+xml" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400..700;1,9..40,400..700&display=swap"
+    rel="stylesheet"
+  />
   <style>
+    /**
+     * Identidade visual alinhada ao site público e-Ship (charcoal #3f444b, superfícies claras).
+     * Referência: https://eship.com.br
+     */
     :root {
-      --bg-deep: #080c12;
-      --bg: #0d1219;
-      --surface: #141c28;
-      --surface-elevated: #1a2433;
-      --border: #2a3a52;
-      --border-strong: #3d5270;
-      --text: #f0f4f8;
-      --text-secondary: #b8c5d6;
-      --muted: #8fa3b8;
-      --accent: #4d9fff;
-      --accent-hover: #6eb0ff;
-      --accent-muted: rgba(77, 159, 255, 0.15);
-      --danger: #ff8a8a;
-      --danger-bg: rgba(248, 113, 113, 0.12);
-      --ok: #6ee7a0;
-      --ok-bg: rgba(74, 222, 128, 0.12);
-      --code: #9dccff;
+      --brand: #3f444b;
+      --brand-hover: #32373d;
+      --brand-muted: rgba(63, 68, 75, 0.12);
+      --bg-page: #eef1f4;
+      --bg-deep: #e2e8ef;
+      --bg: #f9fafa;
+      --surface: #ffffff;
+      --surface-elevated: #ffffff;
+      --border: #d5dde5;
+      --border-strong: #9aa8b6;
+      --text: #1a1f26;
+      --text-secondary: #3d4654;
+      --muted: #5a6572;
+      --accent: #3f444b;
+      --accent-hover: #32373d;
+      --accent-muted: rgba(63, 68, 75, 0.1);
+      --link: #0b5f6b;
+      --link-hover: #084854;
+      --focus: #1d4ed8;
+      --danger: #b91c1c;
+      --danger-bg: #fef2f2;
+      --ok: #047857;
+      --ok-bg: #ecfdf5;
+      --code: #0f172a;
+      --code-bg: #e8edf3;
       --radius-sm: 6px;
       --radius-md: 10px;
-      --radius-lg: 14px;
-      --shadow: 0 4px 24px rgba(0, 0, 0, 0.35);
-      --font: "Segoe UI", system-ui, -apple-system, sans-serif;
+      --radius-lg: 12px;
+      --shadow: 0 1px 3px rgba(63, 68, 75, 0.08), 0 4px 14px rgba(63, 68, 75, 0.06);
+      --font: "DM Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
       --font-mono: ui-monospace, "Cascadia Code", "Consolas", monospace;
-      --focus-ring: 0 0 0 3px var(--accent-muted), 0 0 0 5px var(--accent);
+      --focus-ring: 0 0 0 2px var(--surface), 0 0 0 5px var(--focus);
       --space: 1rem;
+      --touch-min: 44px;
     }
 
     @media (prefers-reduced-motion: reduce) {
@@ -53,10 +73,8 @@
       font-size: 1rem;
       line-height: 1.55;
       color: var(--text);
-      background: var(--bg-deep);
-      background-image:
-        radial-gradient(ellipse 120% 80% at 50% -40%, rgba(77, 159, 255, 0.12), transparent),
-        radial-gradient(ellipse 80% 50% at 100% 100%, rgba(100, 80, 200, 0.06), transparent);
+      background: var(--bg-page);
+      background-image: linear-gradient(180deg, #f9fafa 0%, var(--bg-page) 38%, var(--bg-page) 100%);
     }
 
     .skip-link {
@@ -64,9 +82,12 @@
       top: -100px;
       left: var(--space);
       z-index: 1000;
-      padding: 0.65rem 1rem;
-      background: var(--accent);
-      color: #051018;
+      padding: 0.75rem 1.1rem;
+      min-height: var(--touch-min);
+      display: inline-flex;
+      align-items: center;
+      background: var(--brand);
+      color: #fff;
       font-weight: 600;
       text-decoration: none;
       border-radius: var(--radius-sm);
@@ -80,33 +101,57 @@
 
     .site-header {
       border-bottom: 1px solid var(--border);
-      background: linear-gradient(180deg, var(--surface-elevated) 0%, var(--surface) 100%);
+      background: var(--surface);
       box-shadow: var(--shadow);
     }
     .site-header__inner {
       max-width: 1040px;
       margin: 0 auto;
-      padding: 1.35rem var(--space) 1.5rem;
+      padding: 1.25rem var(--space) 1.35rem;
     }
+    .header-brand-row {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 1rem 1.25rem;
+      margin-bottom: 0.75rem;
+    }
+    .eship-logo-link {
+      display: inline-flex;
+      align-items: center;
+      line-height: 0;
+      border-radius: var(--radius-sm);
+    }
+    .eship-logo-link:focus-visible {
+      outline: none;
+      box-shadow: var(--focus-ring);
+    }
+    .eship-logo {
+      height: 44px;
+      width: auto;
+      max-width: min(220px, 42vw);
+      object-fit: contain;
+    }
+    .header-titles { flex: 1; min-width: min(100%, 12rem); }
     .site-brand {
-      margin: 0 0 0.35rem;
-      font-size: 0.75rem;
+      margin: 0 0 0.25rem;
+      font-size: 0.6875rem;
       font-weight: 700;
-      letter-spacing: 0.12em;
+      letter-spacing: 0.14em;
       text-transform: uppercase;
-      color: var(--accent);
+      color: var(--muted);
     }
-    .site-brand__icon { margin-right: 0.35rem; opacity: 0.9; }
     .site-title {
       margin: 0 0 0.5rem;
-      font-size: clamp(1.35rem, 3vw, 1.65rem);
+      font-size: clamp(1.25rem, 2.8vw, 1.55rem);
       font-weight: 700;
       letter-spacing: -0.02em;
-      line-height: 1.2;
+      line-height: 1.25;
+      color: var(--text);
     }
     .site-tagline {
       margin: 0;
-      max-width: 52ch;
+      max-width: 58ch;
       color: var(--text-secondary);
       font-size: 0.9375rem;
     }
@@ -125,7 +170,7 @@
       border-radius: var(--radius-lg);
       padding: 1.35rem 1.5rem;
       margin-bottom: 1.25rem;
-      box-shadow: 0 1px 0 rgba(255, 255, 255, 0.04) inset;
+      box-shadow: 0 1px 0 rgba(255, 255, 255, 0.9) inset;
     }
     .panel--narrow { max-width: 28rem; }
     .panel--toolbar {
@@ -166,14 +211,12 @@
       width: 100%;
       font: inherit;
       color: var(--text);
-      background: var(--bg);
-      border: 1px solid var(--border);
+      background: var(--surface);
+      border: 1px solid var(--border-strong);
       border-radius: var(--radius-sm);
-      padding: 0.6rem 0.75rem;
+      padding: 0.65rem 0.8rem;
+      min-height: var(--touch-min);
       transition: border-color 0.15s ease, box-shadow 0.15s ease;
-    }
-    input:hover, textarea:hover, select:hover {
-      border-color: var(--border-strong);
     }
     textarea {
       min-height: 7rem;
@@ -181,6 +224,9 @@
       font-size: 0.8125rem;
       line-height: 1.45;
       resize: vertical;
+    }
+    input:hover, textarea:hover, select:hover {
+      border-color: var(--brand);
     }
 
     button {
@@ -193,41 +239,42 @@
       font-size: 0.875rem;
       cursor: pointer;
       border-radius: var(--radius-sm);
-      padding: 0.55rem 1.1rem;
+      padding: 0.65rem 1.15rem;
+      min-height: var(--touch-min);
       border: 1px solid transparent;
       margin-top: 0.75rem;
       transition: background 0.15s ease, border-color 0.15s ease, transform 0.1s ease;
     }
     button:active:not(:disabled) { transform: scale(0.98); }
-    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    button:disabled { opacity: 0.55; cursor: not-allowed; }
 
     button:not(.secondary):not(.danger) {
-      background: linear-gradient(180deg, var(--accent-hover) 0%, var(--accent) 100%);
-      color: #051018;
-      border-color: rgba(255, 255, 255, 0.15);
-      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+      background: var(--brand);
+      color: #fff;
+      border-color: rgba(0, 0, 0, 0.12);
+      box-shadow: 0 1px 2px rgba(63, 68, 75, 0.15);
     }
     button:not(.secondary):not(.danger):hover {
-      background: linear-gradient(180deg, #8ec4ff 0%, var(--accent-hover) 100%);
+      background: var(--brand-hover);
     }
 
     button.secondary {
-      background: transparent;
+      background: var(--surface);
       color: var(--text);
       border-color: var(--border-strong);
     }
     button.secondary:hover {
-      background: rgba(255, 255, 255, 0.06);
-      border-color: var(--muted);
+      background: var(--bg);
+      border-color: var(--brand);
     }
 
     button.danger {
       background: var(--danger-bg);
       color: var(--danger);
-      border-color: rgba(248, 113, 113, 0.35);
+      border-color: rgba(185, 28, 28, 0.35);
     }
     button.danger:hover {
-      background: rgba(248, 113, 113, 0.2);
+      background: #fee2e2;
     }
 
     .btn-row {
@@ -259,12 +306,12 @@
     .feedback--err {
       color: var(--danger);
       background: var(--danger-bg);
-      border: 1px solid rgba(248, 113, 113, 0.25);
+      border: 1px solid rgba(185, 28, 28, 0.28);
     }
     .feedback--ok {
       color: var(--ok);
       background: var(--ok-bg);
-      border: 1px solid rgba(74, 222, 128, 0.25);
+      border: 1px solid rgba(4, 120, 87, 0.25);
     }
 
     .token-box {
@@ -275,9 +322,9 @@
       line-height: 1.5;
       word-break: break-all;
       background: var(--bg-deep);
-      border: 1px solid var(--accent);
+      border: 1px solid var(--border-strong);
       border-radius: var(--radius-md);
-      box-shadow: 0 0 0 1px var(--accent-muted);
+      color: var(--text);
     }
 
     ul.users {
@@ -327,7 +374,7 @@
       gap: 0.5rem;
       padding: 0.65rem 0.75rem;
       margin-bottom: 0.4rem;
-      background: var(--surface);
+      background: var(--bg);
       border: 1px solid var(--border);
       border-radius: var(--radius-sm);
       font-size: 0.8125rem;
@@ -335,7 +382,7 @@
     .links li.mcp-row:last-child { margin-bottom: 0; }
     .mcp-row__main { flex: 1; min-width: min(100%, 14rem); }
     .mcp-row__actions { display: flex; flex-wrap: wrap; gap: 0.35rem; }
-    .mcp-row__actions button { margin-top: 0; padding: 0.4rem 0.75rem; font-size: 0.8125rem; }
+    .mcp-row__actions button { margin-top: 0; padding: 0.45rem 0.85rem; min-height: 40px; font-size: 0.8125rem; }
 
     details.token-block {
       margin-top: 0.65rem;
@@ -351,9 +398,10 @@
       align-items: center;
       justify-content: space-between;
       gap: 0.75rem;
-      padding: 0.75rem 1rem;
+      padding: 0.85rem 1rem;
+      min-height: var(--touch-min);
       font-weight: 600;
-      background: rgba(255, 255, 255, 0.03);
+      background: var(--bg);
       border-bottom: 1px solid var(--border);
     }
     details.token-block summary::-webkit-details-marker { display: none; }
@@ -382,7 +430,7 @@
       font-family: var(--font-mono);
       font-size: 0.84em;
       color: var(--code);
-      background: rgba(157, 204, 255, 0.08);
+      background: var(--code-bg);
       padding: 0.1em 0.35em;
       border-radius: 4px;
     }
@@ -408,13 +456,28 @@
       outline: none;
       box-shadow: var(--focus-ring);
     }
+    input:focus-visible,
+    textarea:focus-visible,
+    select:focus-visible {
+      border-color: var(--focus);
+    }
+
+    .view-body a:not(.btn-link):not(.card-link):not(.secondary) {
+      color: var(--link);
+      font-weight: 600;
+      text-underline-offset: 0.15em;
+    }
+    .view-body a:not(.btn-link):not(.card-link):not(.secondary):hover {
+      color: var(--link-hover);
+      text-decoration: underline;
+    }
 
     .path-line {
       font-size: 0.8125rem;
       color: var(--text-secondary);
       word-break: break-all;
     }
-    .path-line code { background: transparent; padding: 0; }
+    .path-line code { background: transparent; padding: 0; color: var(--code); }
 
     main#main.main--app {
       max-width: none;
@@ -440,16 +503,18 @@
     .sidebar {
       background: var(--surface);
       border-right: 1px solid var(--border);
-      padding: 0.75rem 0 1.5rem;
+      padding: 0.5rem 0 1.5rem;
     }
     .sidebar-nav {
       display: flex;
       flex-direction: column;
-      gap: 0.15rem;
+      gap: 0.1rem;
     }
     .sidebar-nav a {
-      display: block;
-      padding: 0.65rem 1.15rem;
+      display: flex;
+      align-items: center;
+      min-height: var(--touch-min);
+      padding: 0.5rem 1.15rem;
       color: var(--text-secondary);
       text-decoration: none;
       font-size: 0.9rem;
@@ -457,12 +522,12 @@
       border-left: 3px solid transparent;
     }
     .sidebar-nav a:hover {
-      background: rgba(255, 255, 255, 0.05);
+      background: var(--brand-muted);
       color: var(--text);
     }
     .sidebar-nav a[aria-current="page"] {
-      border-left-color: var(--accent);
-      background: var(--accent-muted);
+      border-left-color: var(--brand);
+      background: var(--brand-muted);
       color: var(--text);
       font-weight: 700;
     }
@@ -480,16 +545,17 @@
     .data-table th,
     .data-table td {
       border: 1px solid var(--border);
-      padding: 0.55rem 0.7rem;
+      padding: 0.65rem 0.75rem;
       text-align: left;
       vertical-align: top;
     }
     .data-table th {
       background: var(--bg);
-      color: var(--muted);
+      color: var(--text-secondary);
       font-size: 0.72rem;
       text-transform: uppercase;
       letter-spacing: 0.05em;
+      font-weight: 700;
     }
     .data-table-wrap {
       overflow-x: auto;
@@ -511,19 +577,23 @@
       padding: 1rem 1.15rem;
       border: 1px solid var(--border);
       border-radius: var(--radius-md);
-      background: var(--bg);
+      background: var(--surface);
       color: inherit;
       text-decoration: none;
-      transition: border-color 0.15s ease, background 0.15s ease;
+      transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
     }
     .card-link:hover {
-      border-color: var(--accent);
-      background: rgba(77, 159, 255, 0.06);
+      border-color: var(--brand);
+      background: var(--bg);
+      box-shadow: var(--shadow);
+    }
+    .card-link:focus-visible {
+      border-color: var(--focus);
     }
     .card-link strong {
       display: block;
       margin-bottom: 0.35rem;
-      color: var(--accent);
+      color: var(--brand);
       font-size: 0.85rem;
     }
 
@@ -532,7 +602,7 @@
       font-size: 0.9rem;
     }
     .back-row a {
-      color: var(--accent);
+      color: var(--link);
       font-weight: 600;
       text-decoration: none;
     }
@@ -553,7 +623,7 @@
     .pre-block {
       margin: 0.65rem 0 0;
       padding: 0.85rem 1rem;
-      background: var(--bg);
+      background: var(--bg-deep);
       border: 1px solid var(--border);
       border-radius: var(--radius-sm);
       overflow-x: auto;
@@ -568,7 +638,7 @@
       margin-top: 1.25rem;
       padding: 0.85rem 1rem;
       border-radius: var(--radius-sm);
-      background: var(--accent-muted);
+      background: var(--bg);
       border: 1px solid var(--border);
       font-size: 0.875rem;
       color: var(--text-secondary);
@@ -576,27 +646,57 @@
     a.btn-link {
       display: inline-flex;
       align-items: center;
-      padding: 0.4rem 0.75rem;
+      min-height: 40px;
+      padding: 0.45rem 0.85rem;
       border-radius: 6px;
       text-decoration: none;
       border: 1px solid var(--border-strong);
       font-size: 0.8125rem;
       font-weight: 600;
       color: var(--text);
-      background: transparent;
+      background: var(--surface);
     }
     a.btn-link:hover {
-      border-color: var(--accent);
-      color: var(--accent);
+      border-color: var(--brand);
+      color: var(--brand);
+    }
+    a.btn-link:focus-visible {
+      border-color: var(--focus);
     }
   </style>
 </head>
 <body>
   <a class="skip-link" href="#appMain">Saltar para o conteúdo</a>
-  <header class="site-header">
+  <header class="site-header" role="banner">
     <div class="site-header__inner">
-      <p class="site-brand"><span class="site-brand__icon" aria-hidden="true">◆</span>MCP Hub</p>
-      <h1 class="site-title">Administração</h1>
+      <div class="header-brand-row">
+        <a
+          class="eship-logo-link"
+          href="https://eship.com.br/"
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label="e-Ship WMS — site da empresa (abre num novo separador)"
+        >
+          <img
+            class="eship-logo"
+            src="https://eship.com.br/wp-content/uploads/e-Ship-Poditiva-300x96.png"
+            srcset="
+              https://eship.com.br/wp-content/uploads/e-Ship-Poditiva-300x96.png 300w,
+              https://eship.com.br/wp-content/uploads/e-Ship-Poditiva-768x246.png 768w
+            "
+            sizes="220px"
+            width="300"
+            height="96"
+            alt="e-Ship WMS"
+            decoding="async"
+            fetchpriority="high"
+          />
+        </a>
+        <div class="header-titles">
+          <p class="site-brand">MCP Hub · ferramenta interna</p>
+          <h1 class="site-title">Administração</h1>
+        </div>
+      </div>
       <p class="site-tagline">
         Gestão de <strong>utilizadores</strong>, <strong>API tokens</strong> e <strong>MCPs por token</strong>;
         registo <code>mcp_servers</code>, templates <code>mcp_templates</code> e fusão com <code>mcp-hub.config.json</code>.
@@ -618,8 +718,8 @@
 
     <div id="appSection" class="hidden">
       <div class="app-shell">
-        <aside class="sidebar" aria-label="Navegação do painel">
-          <nav id="sidebarNav" class="sidebar-nav">
+        <aside class="sidebar">
+          <nav id="sidebarNav" class="sidebar-nav" aria-label="Secções do painel">
             <a href="#/inicio">Início</a>
             <a href="#/utilizadores">Utilizadores</a>
             <a href="#/templates">Templates MCP</a>
