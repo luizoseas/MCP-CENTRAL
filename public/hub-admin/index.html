@@ -3,146 +3,473 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>MCP Hub — Utilizadores</title>
+  <meta name="color-scheme" content="dark" />
+  <title>MCP Hub — Administração</title>
   <style>
     :root {
-      --bg: #0f1419;
-      --card: #1a2332;
-      --text: #e7ecf3;
-      --muted: #8b9cb3;
-      --accent: #3d8bfd;
-      --danger: #f87171;
-      --ok: #4ade80;
-      --border: #2d3a4d;
+      --bg-deep: #080c12;
+      --bg: #0d1219;
+      --surface: #141c28;
+      --surface-elevated: #1a2433;
+      --border: #2a3a52;
+      --border-strong: #3d5270;
+      --text: #f0f4f8;
+      --text-secondary: #b8c5d6;
+      --muted: #8fa3b8;
+      --accent: #4d9fff;
+      --accent-hover: #6eb0ff;
+      --accent-muted: rgba(77, 159, 255, 0.15);
+      --danger: #ff8a8a;
+      --danger-bg: rgba(248, 113, 113, 0.12);
+      --ok: #6ee7a0;
+      --ok-bg: rgba(74, 222, 128, 0.12);
+      --code: #9dccff;
+      --radius-sm: 6px;
+      --radius-md: 10px;
+      --radius-lg: 14px;
+      --shadow: 0 4px 24px rgba(0, 0, 0, 0.35);
+      --font: "Segoe UI", system-ui, -apple-system, sans-serif;
+      --font-mono: ui-monospace, "Cascadia Code", "Consolas", monospace;
+      --focus-ring: 0 0 0 3px var(--accent-muted), 0 0 0 5px var(--accent);
+      --space: 1rem;
     }
-    * { box-sizing: border-box; }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+      }
+    }
+
+    *, *::before, *::after { box-sizing: border-box; }
+
+    html { scroll-behavior: smooth; }
+
     body {
-      font-family: ui-sans-serif, system-ui, sans-serif;
-      background: var(--bg);
-      color: var(--text);
       margin: 0;
-      line-height: 1.5;
       min-height: 100vh;
-    }
-    header {
-      padding: 1.25rem 1.5rem;
-      border-bottom: 1px solid var(--border);
-      background: var(--card);
-    }
-    h1 { font-size: 1.25rem; margin: 0 0 0.25rem; font-weight: 600; }
-    .sub { color: var(--muted); font-size: 0.875rem; }
-    main { max-width: 960px; margin: 0 auto; padding: 1.5rem; }
-    section {
-      background: var(--card);
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      padding: 1.25rem;
-      margin-bottom: 1.25rem;
-    }
-    h2 { font-size: 1rem; margin: 0 0 1rem; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
-    label { display: block; font-size: 0.8rem; color: var(--muted); margin-bottom: 0.35rem; }
-    input, textarea, select, button {
-      font: inherit;
-      border-radius: 6px;
-      border: 1px solid var(--border);
-      background: var(--bg);
+      font-family: var(--font);
+      font-size: 1rem;
+      line-height: 1.55;
       color: var(--text);
-      padding: 0.5rem 0.65rem;
-      width: 100%;
+      background: var(--bg-deep);
+      background-image:
+        radial-gradient(ellipse 120% 80% at 50% -40%, rgba(77, 159, 255, 0.12), transparent),
+        radial-gradient(ellipse 80% 50% at 100% 100%, rgba(100, 80, 200, 0.06), transparent);
     }
-    textarea { min-height: 120px; font-family: ui-monospace, monospace; font-size: 0.8rem; }
-    button {
-      cursor: pointer;
+
+    .skip-link {
+      position: absolute;
+      top: -100px;
+      left: var(--space);
+      z-index: 1000;
+      padding: 0.65rem 1rem;
       background: var(--accent);
-      border-color: var(--accent);
-      color: #fff;
-      width: auto;
-      padding: 0.5rem 1rem;
+      color: #051018;
+      font-weight: 600;
+      text-decoration: none;
+      border-radius: var(--radius-sm);
+      transition: top 0.2s ease;
+    }
+    .skip-link:focus {
+      top: var(--space);
+      outline: none;
+      box-shadow: var(--focus-ring);
+    }
+
+    .site-header {
+      border-bottom: 1px solid var(--border);
+      background: linear-gradient(180deg, var(--surface-elevated) 0%, var(--surface) 100%);
+      box-shadow: var(--shadow);
+    }
+    .site-header__inner {
+      max-width: 1040px;
+      margin: 0 auto;
+      padding: 1.35rem var(--space) 1.5rem;
+    }
+    .site-brand {
+      margin: 0 0 0.35rem;
+      font-size: 0.75rem;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--accent);
+    }
+    .site-brand__icon { margin-right: 0.35rem; opacity: 0.9; }
+    .site-title {
+      margin: 0 0 0.5rem;
+      font-size: clamp(1.35rem, 3vw, 1.65rem);
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      line-height: 1.2;
+    }
+    .site-tagline {
+      margin: 0;
+      max-width: 52ch;
+      color: var(--text-secondary);
+      font-size: 0.9375rem;
+    }
+    .site-tagline strong { color: var(--text); font-weight: 600; }
+
+    main#main {
+      max-width: 1040px;
+      margin: 0 auto;
+      padding: 1.5rem var(--space) 3rem;
+    }
+    main#main:focus { outline: none; }
+
+    .panel {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 1.35rem 1.5rem;
+      margin-bottom: 1.25rem;
+      box-shadow: 0 1px 0 rgba(255, 255, 255, 0.04) inset;
+    }
+    .panel--narrow { max-width: 28rem; }
+    .panel--toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 1rem;
+    }
+    .panel--toolbar .panel__meta { flex: 1; min-width: min(100%, 18rem); }
+    .panel--toolbar h2 { margin-bottom: 0.35rem; }
+
+    .section-title {
+      margin: 0 0 0.85rem;
+      font-size: 0.8125rem;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+    .section-lead {
+      margin: -0.25rem 0 1rem;
+      color: var(--text-secondary);
+      font-size: 0.875rem;
+      max-width: 65ch;
+    }
+
+    label,
+    .label-like {
+      display: block;
+      font-size: 0.8125rem;
+      font-weight: 600;
+      color: var(--text-secondary);
+      margin-bottom: 0.4rem;
+    }
+
+    input, textarea, select {
+      width: 100%;
+      font: inherit;
+      color: var(--text);
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 0.6rem 0.75rem;
+      transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    }
+    input:hover, textarea:hover, select:hover {
+      border-color: var(--border-strong);
+    }
+    textarea {
+      min-height: 7rem;
+      font-family: var(--font-mono);
+      font-size: 0.8125rem;
+      line-height: 1.45;
+      resize: vertical;
+    }
+
+    button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.4rem;
+      font: inherit;
+      font-weight: 600;
+      font-size: 0.875rem;
+      cursor: pointer;
+      border-radius: var(--radius-sm);
+      padding: 0.55rem 1.1rem;
+      border: 1px solid transparent;
+      margin-top: 0.75rem;
+      transition: background 0.15s ease, border-color 0.15s ease, transform 0.1s ease;
+    }
+    button:active:not(:disabled) { transform: scale(0.98); }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    button:not(.secondary):not(.danger) {
+      background: linear-gradient(180deg, var(--accent-hover) 0%, var(--accent) 100%);
+      color: #051018;
+      border-color: rgba(255, 255, 255, 0.15);
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+    }
+    button:not(.secondary):not(.danger):hover {
+      background: linear-gradient(180deg, #8ec4ff 0%, var(--accent-hover) 100%);
+    }
+
+    button.secondary {
+      background: transparent;
+      color: var(--text);
+      border-color: var(--border-strong);
+    }
+    button.secondary:hover {
+      background: rgba(255, 255, 255, 0.06);
+      border-color: var(--muted);
+    }
+
+    button.danger {
+      background: var(--danger-bg);
+      color: var(--danger);
+      border-color: rgba(248, 113, 113, 0.35);
+    }
+    button.danger:hover {
+      background: rgba(248, 113, 113, 0.2);
+    }
+
+    .btn-row {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.5rem;
       margin-top: 0.75rem;
     }
-    button.secondary { background: transparent; color: var(--text); border-color: var(--border); }
-    button.danger { background: var(--danger); border-color: var(--danger); }
-    .row { display: grid; gap: 1rem; margin-bottom: 1rem; }
+    .btn-row button { margin-top: 0; }
+
+    .row {
+      display: grid;
+      gap: 1rem;
+      margin-bottom: 1rem;
+    }
     @media (min-width: 560px) {
       .row.cols-2 { grid-template-columns: 1fr 1fr; }
     }
-    .login-panel { max-width: 400px; }
+
     .hidden { display: none !important; }
-    .token-box {
-      background: #0a1628;
-      padding: 0.75rem;
-      border-radius: 6px;
-      word-break: break-all;
-      font-size: 0.8rem;
-      margin-top: 0.5rem;
-      border: 1px solid var(--accent);
+
+    .feedback {
+      margin-top: 0.75rem;
+      padding: 0.65rem 0.85rem;
+      border-radius: var(--radius-sm);
+      font-size: 0.875rem;
     }
-    ul.users { list-style: none; padding: 0; margin: 0; }
+    .feedback--err {
+      color: var(--danger);
+      background: var(--danger-bg);
+      border: 1px solid rgba(248, 113, 113, 0.25);
+    }
+    .feedback--ok {
+      color: var(--ok);
+      background: var(--ok-bg);
+      border: 1px solid rgba(74, 222, 128, 0.25);
+    }
+
+    .token-box {
+      margin-top: 0.65rem;
+      padding: 1rem;
+      font-family: var(--font-mono);
+      font-size: 0.8125rem;
+      line-height: 1.5;
+      word-break: break-all;
+      background: var(--bg-deep);
+      border: 1px solid var(--accent);
+      border-radius: var(--radius-md);
+      box-shadow: 0 0 0 1px var(--accent-muted);
+    }
+
+    ul.users {
+      list-style: none;
+      padding: 0;
+      margin: 1rem 0 0;
+    }
     li.user {
       border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 1rem;
-      margin-bottom: 0.75rem;
-    }
-    li.user h3 { margin: 0 0 0.5rem; font-size: 1rem; }
-    .links { margin-top: 0.75rem; padding-left: 0; list-style: none; }
-    .links li {
-      font-size: 0.85rem;
-      padding: 0.5rem;
+      border-radius: var(--radius-md);
+      padding: 1.1rem 1.15rem;
+      margin-bottom: 0.85rem;
       background: var(--bg);
-      border-radius: 6px;
-      margin-bottom: 0.35rem;
+    }
+    li.user h3 {
+      margin: 0 0 0.65rem;
+      font-size: 1.05rem;
+      font-weight: 700;
+    }
+    .user-actions {
       display: flex;
       flex-wrap: wrap;
       gap: 0.5rem;
-      align-items: center;
+      margin-bottom: 0.5rem;
     }
-    .err { color: var(--danger); font-size: 0.875rem; margin-top: 0.5rem; }
-    .ok { color: var(--ok); font-size: 0.875rem; margin-top: 0.5rem; }
-    code { font-size: 0.8em; color: #93c5fd; }
+    .user-actions button { margin-top: 0; }
+
+    .tokens-heading {
+      margin: 0.75rem 0 0.35rem;
+      font-size: 0.75rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--muted);
+    }
+
+    .links {
+      margin-top: 0.5rem;
+      padding: 0;
+      list-style: none;
+    }
+    .links li.mcp-row {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.5rem;
+      padding: 0.65rem 0.75rem;
+      margin-bottom: 0.4rem;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      font-size: 0.8125rem;
+    }
+    .links li.mcp-row:last-child { margin-bottom: 0; }
+    .mcp-row__main { flex: 1; min-width: min(100%, 14rem); }
+    .mcp-row__actions { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+    .mcp-row__actions button { margin-top: 0; padding: 0.4rem 0.75rem; font-size: 0.8125rem; }
+
+    details.token-block {
+      margin-top: 0.65rem;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      background: var(--surface);
+      overflow: hidden;
+    }
+    details.token-block summary {
+      cursor: pointer;
+      list-style: none;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
+      padding: 0.75rem 1rem;
+      font-weight: 600;
+      background: rgba(255, 255, 255, 0.03);
+      border-bottom: 1px solid var(--border);
+    }
+    details.token-block summary::-webkit-details-marker { display: none; }
+    details.token-block summary::after {
+      content: "";
+      flex-shrink: 0;
+      width: 0.5rem;
+      height: 0.5rem;
+      margin-top: 0.15rem;
+      border-right: 2px solid var(--muted);
+      border-bottom: 2px solid var(--muted);
+      transform: rotate(45deg);
+      transition: transform 0.2s ease;
+    }
+    details.token-block[open] summary::after {
+      transform: rotate(-135deg);
+      margin-top: 0.35rem;
+    }
+    details.token-block > *:not(summary) {
+      padding: 0 1rem 1rem;
+    }
+
+    .sub { color: var(--muted); font-size: 0.875rem; font-weight: 400; }
+
+    code {
+      font-family: var(--font-mono);
+      font-size: 0.84em;
+      color: var(--code);
+      background: rgba(157, 204, 255, 0.08);
+      padding: 0.1em 0.35em;
+      border-radius: 4px;
+    }
+
+    .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
+    }
+
+    a:focus-visible,
+    button:focus-visible,
+    input:focus-visible,
+    textarea:focus-visible,
+    select:focus-visible,
+    summary:focus-visible {
+      outline: none;
+      box-shadow: var(--focus-ring);
+    }
+
+    .path-line {
+      font-size: 0.8125rem;
+      color: var(--text-secondary);
+      word-break: break-all;
+    }
+    .path-line code { background: transparent; padding: 0; }
   </style>
 </head>
 <body>
-  <header>
-    <h1>MCP Hub — Administração</h1>
-    <p class="sub">Utilizadores, vínculos, e registo NoSQL (<code>mcp_servers</code>) para MCPs adicionais que se fundem com <code>mcp-hub.config.json</code>.</p>
+  <a class="skip-link" href="#main">Saltar para o conteúdo</a>
+  <header class="site-header">
+    <div class="site-header__inner">
+      <p class="site-brand"><span class="site-brand__icon" aria-hidden="true">◆</span>MCP Hub</p>
+      <h1 class="site-title">Administração</h1>
+      <p class="site-tagline">
+        Gestão de <strong>utilizadores</strong>, <strong>API tokens</strong> e <strong>MCPs por token</strong>;
+        registo <code>mcp_servers</code>, templates <code>mcp_templates</code> e fusão com <code>mcp-hub.config.json</code>.
+      </p>
+    </div>
   </header>
-  <main>
-    <section id="loginSection" class="login-panel">
-      <h2>Sessão admin</h2>
-      <label for="adminPw">Palavra-passe (<code>MCP_HUB_ADMIN_PASSWORD</code>)</label>
-      <input type="password" id="adminPw" autocomplete="current-password" />
-      <button type="button" id="btnLogin">Entrar</button>
-      <p id="loginErr" class="err hidden"></p>
+
+  <main id="main" tabindex="-1">
+    <section id="loginSection" class="panel panel--narrow" aria-labelledby="login-heading">
+      <h2 id="login-heading" class="section-title">Sessão de administrador</h2>
+      <p class="section-lead">Variável de ambiente <code>MCP_HUB_ADMIN_PASSWORD</code>.</p>
+      <form id="loginForm" novalidate>
+        <label for="adminPw">Palavra-passe</label>
+        <input type="password" id="adminPw" name="password" autocomplete="current-password" required />
+        <button type="submit" id="btnLogin">Entrar</button>
+      </form>
+      <p id="loginErr" class="feedback feedback--err hidden" role="alert" aria-live="polite"></p>
     </section>
 
-    <section id="appSection" class="hidden">
-      <div class="row cols-2" style="align-items: end;">
-        <div>
-          <h2 style="margin:0;">Painel</h2>
-          <p class="sub" style="margin:0.25rem 0 0;">Utilizadores: <code id="dataPath"></code></p>
-          <p class="sub" style="margin:0;">Coleção <code>mcp_servers</code>: <code id="registryPath"></code></p>
+    <div id="appSection" class="hidden">
+      <section class="panel panel--toolbar" aria-labelledby="toolbar-heading">
+        <div class="panel__meta">
+          <h2 id="toolbar-heading" class="section-title" style="margin-bottom:0.25rem;">Painel</h2>
+          <p class="path-line">Utilizadores: <code id="dataPath"></code></p>
+          <p class="path-line">Registo: <code id="registryPath"></code></p>
         </div>
-        <div style="text-align: right;">
-          <button type="button" class="secondary" id="btnLogout">Sair</button>
-        </div>
-      </div>
-
-      <section>
-        <h2>Novo utilizador</h2>
-        <label for="newLabel">Nome / etiqueta</label>
-        <input type="text" id="newLabel" placeholder="Equipa A" />
-        <button type="button" id="btnCreateUser">Criar e gerar token</button>
-        <p id="createErr" class="err hidden"></p>
-        <div id="newTokenWrap" class="hidden">
-          <p class="ok">Guarda este token — não volta a ser mostrado. Envia-o no cabeçalho <code>X-MCP-Hub-User-Token</code> no <strong>initialize</strong> HTTP do hub.</p>
-          <div class="token-box" id="newToken"></div>
+        <div class="btn-row" style="margin-top:0;">
+          <button type="button" class="secondary" id="btnLogout">Terminar sessão</button>
         </div>
       </section>
 
-      <section>
-        <h2>Registo MCP (NoSQL em disco)</h2>
-        <p class="sub" style="margin-top:0;">Novos documentos sobrepõem entradas com a mesma <code>key</code> no ficheiro JSON estático. Chave: letras, números, <code>_</code>, <code>-</code>, <code>.</code>.</p>
+      <section class="panel" aria-labelledby="new-user-heading">
+        <h2 id="new-user-heading" class="section-title">Novo utilizador</h2>
+        <label for="newLabel">Nome / etiqueta</label>
+        <input type="text" id="newLabel" placeholder="Equipa A" />
+        <button type="button" id="btnCreateUser">Criar utilizador</button>
+        <p id="createErr" class="feedback feedback--err hidden" role="alert" aria-live="polite"></p>
+        <p class="section-lead" style="margin-top:1rem;">Depois cria um ou mais <strong>API tokens</strong> na lista (cada um com o secret mostrado uma vez).</p>
+        <div id="newTokenWrap" class="hidden">
+          <p class="feedback feedback--ok">Guarda este <strong>secret</strong> — não volta a ser mostrado. Cabeçalho HTTP: <code>X-MCP-Hub-User-Token</code> no <strong>initialize</strong> do hub.</p>
+          <div class="token-box" id="newToken" tabindex="0" role="status" aria-label="Secret do API token"></div>
+        </div>
+      </section>
+
+      <section class="panel" aria-labelledby="registry-heading">
+        <h2 id="registry-heading" class="section-title">Registo MCP (catálogo)</h2>
+        <p class="section-lead">Novos documentos sobrepõem entradas com a mesma <code>key</code> no ficheiro JSON estático. Chave: letras, números, <code>_</code>, <code>-</code>, <code>.</code>.</p>
         <div class="row cols-2">
           <div>
             <label for="newMcpKey">Chave única (ex. meu-wms-extra)</label>
@@ -163,19 +490,59 @@
     }
   }
 }</textarea>
-        <button type="button" id="btnCreateMcp">Guardar no registo</button>
-        <button type="button" class="secondary" id="btnRefreshRegistry" style="margin-left:0.5rem;">Recarregar tabela</button>
-        <p id="registryErr" class="err hidden"></p>
-        <ul class="users" id="registryList" style="margin-top:1rem;"></ul>
+        <div class="btn-row">
+          <button type="button" id="btnCreateMcp">Guardar no registo</button>
+          <button type="button" class="secondary" id="btnRefreshRegistry">Recarregar lista</button>
+        </div>
+        <p id="registryErr" class="feedback feedback--err hidden" role="alert" aria-live="polite"></p>
+        <ul class="users" id="registryList" aria-label="Documentos MCP no registo"></ul>
       </section>
 
-      <section>
-        <h2>Utilizadores e vínculos</h2>
-        <button type="button" class="secondary" id="btnRefresh">Recarregar lista</button>
-        <ul class="users" id="userList"></ul>
-        <p id="listErr" class="err hidden"></p>
+      <section class="panel" aria-labelledby="tpl-heading">
+        <h2 id="tpl-heading" class="section-title">Templates MCP (definição base)</h2>
+        <p class="section-lead">O admin define URL/definição fixa; cada utilizador escolhe o template no token e preenche sobretudo <strong>cabeçalhos de acesso</strong> (JSON). Gravado no mesmo ficheiro que o registo <code>mcp_servers</code>.</p>
+        <div class="row cols-2">
+          <div>
+            <label for="tplKey">Chave do template (ex. eship-wms-padrao)</label>
+            <input type="text" id="tplKey" placeholder="meu-template-mcp" />
+          </div>
+          <div>
+            <label for="tplLabel">Etiqueta</label>
+            <input type="text" id="tplLabel" placeholder="WMS e-ship (base)" />
+          </div>
+        </div>
+        <label for="tplDesc">Descrição (opcional)</label>
+        <input type="text" id="tplDesc" placeholder="Quem usa preenche X-Eship-Api-Key e URL base nos headers." />
+        <label for="tplHeaderKeys">Cabeçalhos sugeridos para acesso (opcional, separados por vírgula)</label>
+        <input type="text" id="tplHeaderKeys" placeholder="X-Eship-Api-Key, X-Eship-Api-Base-Url" />
+        <label for="tplDef">Definição MCP base (stdio ou streamableHttp)</label>
+        <textarea id="tplDef" rows="8">{
+  "streamableHttp": {
+    "url": "https://exemplo.mcp.eship.com.br/mcp",
+    "headers": {
+      "X-Eship-Api-Key": "${ESHIP_API_KEY}",
+      "X-Eship-Api-Base-Url": "${ESHIP_API_BASE_URL}"
+    }
+  }
+}</textarea>
+        <div class="btn-row">
+          <button type="button" id="btnCreateTemplate">Guardar template</button>
+          <button type="button" class="secondary" id="btnRefreshTemplates">Recarregar lista</button>
+        </div>
+        <p id="templateErr" class="feedback feedback--err hidden" role="alert" aria-live="polite"></p>
+        <ul class="users" id="templateList" aria-label="Templates MCP"></ul>
       </section>
-    </section>
+
+      <section class="panel" aria-labelledby="users-heading">
+        <h2 id="users-heading" class="section-title">Utilizadores, tokens e MCPs</h2>
+        <p class="section-lead">Cria tokens por utilizador e MCPs por token (URL directa, catálogo ou template administrativo).</p>
+        <div class="btn-row">
+          <button type="button" class="secondary" id="btnRefresh">Recarregar tudo</button>
+        </div>
+        <ul class="users" id="userList" aria-label="Lista de utilizadores"></ul>
+        <p id="listErr" class="feedback feedback--err hidden" role="alert" aria-live="polite"></p>
+      </section>
+    </div>
   </main>
   <script>
     const $ = (id) => document.getElementById(id);
@@ -197,8 +564,10 @@
           $("loginSection").classList.add("hidden");
           $("appSection").classList.remove("hidden");
           loadConfig();
+          loadMcpTemplates();
           loadUsers();
           loadMcpRegistry();
+          $("main")?.focus({ preventScroll: true });
         }
       } catch { /* not logged */ }
     }
@@ -224,8 +593,10 @@
           <li class="user" data-doc-id="${esc(d._id)}">
             <h3><code>${esc(d.key)}</code> — ${esc(d.label || "")}</h3>
             <p class="sub" style="margin:0;">_id: ${esc(d._id)} · actualizado: ${esc(d.updatedAt || "")}</p>
-            <button type="button" class="secondary btn-edit-doc">Editar def JSON</button>
-            <button type="button" class="danger btn-del-doc">Apagar do registo</button>
+            <div class="btn-row">
+              <button type="button" class="secondary btn-edit-doc">Editar definição JSON</button>
+              <button type="button" class="danger btn-del-doc">Apagar do registo</button>
+            </div>
           </li>`,
           )
           .join("");
@@ -274,6 +645,79 @@
       }
     }
 
+    async function loadMcpTemplates() {
+      $("templateErr").classList.add("hidden");
+      try {
+        const { templates } = await api("/mcp-templates");
+        $("templateList").innerHTML = (templates || [])
+          .map(
+            (d) => `
+          <li class="user" data-tpl-id="${esc(d._id)}">
+            <h3><code>${esc(d.key)}</code> — ${esc(d.label || "")}</h3>
+            <p class="sub" style="margin:0;">${esc(d.description || "")}</p>
+            <p class="sub" style="margin:0;">_id: ${esc(d._id)} · cabeçalhos sugeridos: <code>${esc((d.accessHeaderKeys || []).join(", ") || "—")}</code></p>
+            <div class="btn-row">
+              <button type="button" class="secondary btn-edit-tpl">Editar base e meta (JSON)</button>
+              <button type="button" class="danger btn-del-tpl">Apagar template</button>
+            </div>
+          </li>`,
+          )
+          .join("");
+        $("templateList").querySelectorAll("[data-tpl-id]").forEach((row) => {
+          const id = row.getAttribute("data-tpl-id");
+          row.querySelector(".btn-del-tpl").onclick = async () => {
+            if (!confirm("Apagar este template? MCPs de tokens que o usem deixarão de resolver.")) return;
+            try {
+              await api(`/mcp-templates/${id}`, { method: "DELETE" });
+              loadMcpTemplates();
+              loadUsers();
+            } catch (e) {
+              alert(e.message);
+            }
+          };
+          row.querySelector(".btn-edit-tpl").onclick = async () => {
+            const doc = (templates || []).find((x) => x._id === id);
+            if (!doc) return;
+            const raw = prompt(
+              "JSON com campos opcionais: key, label, description, accessHeaderKeys (array), def",
+              JSON.stringify(
+                {
+                  key: doc.key,
+                  label: doc.label,
+                  description: doc.description,
+                  accessHeaderKeys: doc.accessHeaderKeys,
+                  def: doc.def,
+                },
+                null,
+                2,
+              ),
+            );
+            if (raw == null) return;
+            let patch;
+            try {
+              patch = JSON.parse(raw);
+            } catch {
+              alert("JSON inválido.");
+              return;
+            }
+            try {
+              await api(`/mcp-templates/${id}`, {
+                method: "PUT",
+                body: JSON.stringify(patch),
+              });
+              loadMcpTemplates();
+              loadUsers();
+            } catch (e) {
+              alert(e.message);
+            }
+          };
+        });
+      } catch (e) {
+        $("templateErr").textContent = e.message;
+        $("templateErr").classList.remove("hidden");
+      }
+    }
+
     function esc(s) {
       const d = document.createElement("div");
       d.textContent = s;
@@ -285,68 +729,144 @@
       try {
         const { users } = await api("/users");
         const { servers } = await api("/servers");
+        const tplRes = await api("/mcp-templates").catch(() => ({ templates: [] }));
+        const tplList = tplRes.templates || [];
+        const tplOpts =
+          tplList.length > 0
+            ? tplList
+                .map(
+                  (x) =>
+                    `<option value="${esc(x._id)}" data-hint="${esc((x.accessHeaderKeys || []).join(", "))}">${esc(x.label)} (${esc(x.key)})</option>`,
+                )
+                .join("")
+            : '<option value="">(sem templates — cria na secção Templates)</option>';
         const serverOpts =
           (servers || []).length > 0
             ? (servers || []).map((s) => `<option value="${esc(s)}">${esc(s)}</option>`).join("")
-            : '<option value="">(sem MCPs — ficheiro + registo vazios)</option>';
-        $("userList").innerHTML = users
+            : '<option value="">(sem chaves no catálogo)</option>';
+
+        const enriched = await Promise.all(
+          (users || []).map(async (u) => {
+            const tokens = await Promise.all(
+              (u.tokens || []).map(async (t) => {
+                const { mcps } = await api(`/tokens/${t.id}/mcps`);
+                return { ...t, mcps: mcps || [] };
+              }),
+            );
+            return { ...u, tokens };
+          }),
+        );
+
+        $("userList").innerHTML = enriched
           .map(
             (u) => `
           <li class="user" data-user="${esc(u.id)}">
             <h3>${esc(u.label)} <span class="sub" style="font-weight:normal;">(${esc(u.id)})</span></h3>
-            <div class="row cols-2">
-              <div>
-                <label>Novo vínculo — MCP</label>
-                <select class="sel-server">${serverOpts}</select>
-              </div>
-              <div>
-                <label>JSON de ligação <span class="sub">(headers, url, env)</span></label>
-                <textarea class="conn-json">${esc(JSON.stringify({ headers: {}, env: {} }, null, 2))}</textarea>
-              </div>
+            <div class="user-actions">
+              <button type="button" class="secondary btn-new-token">Novo API token</button>
+              <button type="button" class="danger btn-del-user">Apagar utilizador</button>
             </div>
-            <button type="button" class="btn-add-link">Adicionar vínculo</button>
-            <button type="button" class="danger btn-del-user" style="margin-left:0.5rem;">Apagar utilizador</button>
-            <ul class="links">${(u.links || [])
+            <h4 class="tokens-heading">Tokens</h4>
+            ${(u.tokens || [])
               .map(
-                (l) => `
-              <li data-link="${esc(l.id)}" data-connection="${encodeURIComponent(JSON.stringify(l.connection ?? {}))}">
-                <strong>${esc(l.serverKey)}</strong>
-                <button type="button" class="secondary btn-edit">Editar JSON</button>
-                <button type="button" class="danger btn-del-link">Remover</button>
-              </li>`,
+                (t) => `
+            <details class="token-block" open data-token-id="${esc(t.id)}">
+              <summary id="sum-${esc(t.id)}">${esc(t.label || "token")} <span class="sub" style="font-weight:normal;">· ${esc(t.id)}</span></summary>
+              <div class="btn-row">
+                <button type="button" class="danger btn-revoke-token" data-tid="${esc(t.id)}">Revogar token</button>
+              </div>
+              <p class="sub" style="margin:0.35rem 0 0;">MCPs deste token</p>
+              <ul class="links" aria-label="MCPs ligados a este token">
+                ${(t.mcps || [])
+                  .map(
+                    (m) => `
+                <li class="mcp-row" data-mcp="${esc(m.id)}">
+                  <div class="mcp-row__main"><strong>${esc(m.label || m.id)}</strong>
+                    ${
+                      m.url
+                        ? `<span class="sub"> · URL directa</span>`
+                        : m.templateId
+                          ? (() => {
+                              const tt = tplList.find((x) => x._id === m.templateId);
+                              return `<span class="sub"> · template: ${esc(tt ? `${tt.label} (${tt.key})` : m.templateId)}</span>`;
+                            })()
+                          : `<span class="sub"> · catálogo: ${esc(m.templateServerKey || "")}</span>`
+                    }
+                  </div>
+                  <div class="mcp-row__actions">
+                    <button type="button" class="secondary btn-edit-mcp" data-tid="${esc(t.id)}" data-mid="${esc(m.id)}">Editar</button>
+                    <button type="button" class="danger btn-del-mcp" data-tid="${esc(t.id)}" data-mid="${esc(m.id)}">Remover</button>
+                  </div>
+                </li>`,
+                  )
+                  .join("")}
+              </ul>
+              <div class="row cols-2" style="margin-top:0.75rem;">
+                <div>
+                  <label class="label-like" for="mode-${esc(t.id)}">Modo de ligação</label>
+                  <select class="mcp-mode" id="mode-${esc(t.id)}" aria-label="Modo de ligação MCP">
+                    <option value="direct">URL directa (streamable HTTP)</option>
+                    <option value="catalog">MCP do catálogo (chave global)</option>
+                    <option value="admintpl">Template administrativo (só headers de acesso)</option>
+                  </select>
+                </div>
+                <div>
+                  <label class="label-like" for="lbl-${esc(t.id)}">Etiqueta do MCP (opcional)</label>
+                  <input type="text" class="mcp-label" id="lbl-${esc(t.id)}" placeholder="ex. produção" autocomplete="off" />
+                </div>
+              </div>
+              <div class="mcp-direct-fields">
+                <label class="label-like">URL do MCP</label>
+                <input type="text" class="mcp-url" placeholder="https://…/mcp" autocomplete="off" />
+                <label class="label-like" style="margin-top:0.65rem;">Headers (JSON)</label>
+                <textarea class="mcp-headers" rows="3" aria-label="Cabeçalhos HTTP em JSON">{}</textarea>
+                <label class="label-like" style="margin-top:0.65rem;">Env placeholders (JSON, opcional)</label>
+                <textarea class="mcp-env" rows="2" aria-label="Variáveis de ambiente em JSON">{}</textarea>
+              </div>
+              <div class="mcp-catalog-fields hidden">
+                <label class="label-like">Chave no hub</label>
+                <select class="mcp-catalog-key" aria-label="Chave MCP no catálogo global">${serverOpts}</select>
+                <label class="label-like" style="margin-top:0.65rem;">Connection overrides (JSON)</label>
+                <textarea class="mcp-conn" rows="4" aria-label="JSON de connection">${esc(JSON.stringify({ headers: {}, env: {} }, null, 2))}</textarea>
+              </div>
+              <div class="mcp-admintpl-fields hidden">
+                <label class="label-like">Template base</label>
+                <select class="mcp-admin-template-id" aria-label="Template administrativo">${tplOpts}</select>
+                <p class="sub mcp-tpl-hint" style="margin:0.35rem 0 0;" role="note"></p>
+                <label class="label-like" style="margin-top:0.65rem;">Cabeçalhos de acesso (JSON → <code>connection.headers</code>)</label>
+                <textarea class="mcp-access-headers" rows="4" aria-label="Cabeçalhos de acesso em JSON">{}</textarea>
+              </div>
+              <div class="btn-row">
+                <button type="button" class="btn-add-mcp" data-tid="${esc(t.id)}">Adicionar MCP</button>
+              </div>
+            </details>`,
               )
-              .join("")}</ul>
+              .join("")}
+            ${(u.tokens || []).length === 0 ? "<p class=\"sub\">Sem tokens — cria um para obter o secret.</p>" : ""}
           </li>`,
           )
           .join("");
 
         $("userList").querySelectorAll(".user").forEach((card) => {
           const userId = card.getAttribute("data-user");
-          card.querySelector(".btn-add-link").onclick = async () => {
-            const sel = card.querySelector(".sel-server");
-            const ta = card.querySelector(".conn-json");
-            let connection = {};
+          card.querySelector(".btn-new-token").onclick = async () => {
+            const lab = prompt("Etiqueta do token (opcional):", "default");
+            if (lab === null) return;
             try {
-              connection = JSON.parse(ta.value || "{}");
-            } catch {
-              alert("JSON inválido no vínculo.");
-              return;
-            }
-            try {
-              await api(`/users/${userId}/links`, {
+              const j = await api(`/users/${userId}/tokens`, {
                 method: "POST",
-                body: JSON.stringify({
-                  serverKey: sel.value,
-                  connection,
-                }),
+                body: JSON.stringify({ label: lab }),
               });
+              $("newToken").textContent = j.secret;
+              $("newTokenWrap").classList.remove("hidden");
+              $("newToken")?.focus();
               loadUsers();
             } catch (e) {
               alert(e.message);
             }
           };
           card.querySelector(".btn-del-user").onclick = async () => {
-            if (!confirm("Apagar utilizador e todos os vínculos?")) return;
+            if (!confirm("Apagar utilizador, todos os tokens e MCPs?")) return;
             try {
               await api(`/users/${userId}`, { method: "DELETE" });
               loadUsers();
@@ -354,47 +874,149 @@
               alert(e.message);
             }
           };
-          card.querySelectorAll(".btn-del-link").forEach((btn) => {
+          card.querySelectorAll(".btn-revoke-token").forEach((btn) => {
             btn.onclick = async () => {
-              const li = btn.closest("li");
-              const linkId = li.getAttribute("data-link");
-              if (!confirm("Remover este vínculo?")) return;
+              const tid = btn.getAttribute("data-tid");
+              if (!confirm("Revogar este token e apagar todos os MCPs associados?")) return;
               try {
-                await api(`/links/${linkId}`, { method: "DELETE" });
+                await api(`/users/${userId}/tokens/${tid}`, { method: "DELETE" });
                 loadUsers();
               } catch (e) {
                 alert(e.message);
               }
             };
           });
-          card.querySelectorAll(".btn-edit").forEach((btn) => {
-            btn.onclick = async () => {
-              const li = btn.closest("li");
-              const linkId = li.getAttribute("data-link");
-              let current = {};
-              try {
-                current = JSON.parse(
-                  decodeURIComponent(li.getAttribute("data-connection") || "%7B%7D"),
-                );
-              } catch {
-                current = {};
+          card.querySelectorAll("details.token-block").forEach((det) => {
+            const modeSel = det.querySelector(".mcp-mode");
+            const directF = det.querySelector(".mcp-direct-fields");
+            const catF = det.querySelector(".mcp-catalog-fields");
+            const admF = det.querySelector(".mcp-admintpl-fields");
+            const tplSel = det.querySelector(".mcp-admin-template-id");
+            const tplHint = det.querySelector(".mcp-tpl-hint");
+            if (!modeSel || !directF || !catF || !admF || !tplSel || !tplHint) {
+              return;
+            }
+            const syncTplHint = () => {
+              const opt = tplSel.selectedOptions[0];
+              const h = opt ? opt.getAttribute("data-hint") : "";
+              tplHint.textContent = h
+                ? `Sugestão de cabeçalhos: ${h}`
+                : "Preenche os valores reais de API / URL no JSON abaixo.";
+            };
+            tplSel.onchange = syncTplHint;
+            syncTplHint();
+            const syncMode = () => {
+              const v = modeSel.value;
+              directF.classList.toggle("hidden", v !== "direct");
+              catF.classList.toggle("hidden", v !== "catalog");
+              admF.classList.toggle("hidden", v !== "admintpl");
+            };
+            modeSel.onchange = () => {
+              syncMode();
+              if (modeSel.value === "admintpl") {
+                syncTplHint();
               }
+            };
+            syncMode();
+            det.querySelector(".btn-add-mcp").onclick = async () => {
+              const tid = det.querySelector(".btn-add-mcp").getAttribute("data-tid");
+              const mode = modeSel.value;
+              let body = {};
+              try {
+                if (mode === "direct") {
+                  const url = det.querySelector(".mcp-url").value.trim();
+                  const headers = JSON.parse(det.querySelector(".mcp-headers").value || "{}");
+                  const env = JSON.parse(det.querySelector(".mcp-env").value || "{}");
+                  body = {
+                    label: det.querySelector(".mcp-label").value.trim() || undefined,
+                    url,
+                    headers,
+                    env: Object.keys(env).length ? env : undefined,
+                  };
+                } else if (mode === "catalog") {
+                  const templateServerKey = det.querySelector(".mcp-catalog-key").value.trim();
+                  const connection = JSON.parse(det.querySelector(".mcp-conn").value || "{}");
+                  body = {
+                    label: det.querySelector(".mcp-label").value.trim() || undefined,
+                    templateServerKey,
+                    connection,
+                  };
+                } else {
+                  const templateId = det.querySelector(".mcp-admin-template-id").value.trim();
+                  if (!templateId) {
+                    alert("Escolhe um template administrativo.");
+                    return;
+                  }
+                  const headers = JSON.parse(det.querySelector(".mcp-access-headers").value || "{}");
+                  body = {
+                    label: det.querySelector(".mcp-label").value.trim() || undefined,
+                    templateId,
+                    connection: { headers },
+                  };
+                }
+              } catch {
+                alert("JSON inválido (headers, env ou connection).");
+                return;
+              }
+              try {
+                await api(`/tokens/${tid}/mcps`, {
+                  method: "POST",
+                  body: JSON.stringify(body),
+                });
+                loadUsers();
+              } catch (e) {
+                alert(e.message);
+              }
+            };
+          });
+          card.querySelectorAll(".btn-del-mcp").forEach((btn) => {
+            btn.onclick = async () => {
+              const tid = btn.getAttribute("data-tid");
+              const mid = btn.getAttribute("data-mid");
+              if (!confirm("Remover este MCP?")) return;
+              try {
+                await api(`/tokens/${tid}/mcps/${mid}`, { method: "DELETE" });
+                loadUsers();
+              } catch (e) {
+                alert(e.message);
+              }
+            };
+          });
+          card.querySelectorAll(".btn-edit-mcp").forEach((btn) => {
+            btn.onclick = async () => {
+              const tid = btn.getAttribute("data-tid");
+              const mid = btn.getAttribute("data-mid");
+              const li = btn.closest("li.mcp-row");
+              const m = (enriched.find((x) => x.id === userId).tokens || []).find((x) => x.id === tid)?.mcps?.find((x) => x.id === mid);
+              if (!m) return;
               const raw = prompt(
-                "JSON connection (headers, url, env):",
-                JSON.stringify(current, null, 2),
+                "Editar MCP (JSON): label, url, headers, env, templateServerKey, templateId, connection (um modo: url OU templateServerKey OU templateId)",
+                JSON.stringify(
+                  {
+                    label: m.label,
+                    url: m.url,
+                    headers: m.headers,
+                    env: m.env,
+                    templateServerKey: m.templateServerKey,
+                    templateId: m.templateId,
+                    connection: m.connection,
+                  },
+                  null,
+                  2,
+                ),
               );
               if (raw == null) return;
-              let connection = {};
+              let patch;
               try {
-                connection = JSON.parse(raw);
+                patch = JSON.parse(raw);
               } catch {
                 alert("JSON inválido.");
                 return;
               }
               try {
-                await api(`/links/${linkId}`, {
+                await api(`/tokens/${tid}/mcps/${mid}`, {
                   method: "PUT",
-                  body: JSON.stringify({ connection }),
+                  body: JSON.stringify(patch),
                 });
                 loadUsers();
               } catch (e) {
@@ -409,7 +1031,8 @@
       }
     }
 
-    $("btnLogin").onclick = async () => {
+    $("loginForm").onsubmit = async (e) => {
+      e.preventDefault();
       $("loginErr").classList.add("hidden");
       try {
         await api("/login", {
@@ -419,10 +1042,12 @@
         $("loginSection").classList.add("hidden");
         $("appSection").classList.remove("hidden");
         loadConfig();
+        loadMcpTemplates();
         loadUsers();
         loadMcpRegistry();
-      } catch (e) {
-        $("loginErr").textContent = e.message;
+        $("main")?.focus({ preventScroll: true });
+      } catch (err) {
+        $("loginErr").textContent = err.message;
         $("loginErr").classList.remove("hidden");
       }
     };
@@ -432,18 +1057,17 @@
       $("appSection").classList.add("hidden");
       $("loginSection").classList.remove("hidden");
       $("newTokenWrap").classList.add("hidden");
+      $("adminPw")?.focus();
     };
 
     $("btnCreateUser").onclick = async () => {
       $("createErr").classList.add("hidden");
       $("newTokenWrap").classList.add("hidden");
       try {
-        const j = await api("/users", {
+        await api("/users", {
           method: "POST",
           body: JSON.stringify({ label: $("newLabel").value }),
         });
-        $("newToken").textContent = j.apiToken;
-        $("newTokenWrap").classList.remove("hidden");
         loadUsers();
       } catch (e) {
         $("createErr").textContent = e.message;
@@ -452,8 +1076,44 @@
     };
 
     $("btnRefresh").onclick = () => {
+      loadMcpTemplates();
       loadUsers();
       loadMcpRegistry();
+    };
+
+    $("btnRefreshTemplates").onclick = () => loadMcpTemplates();
+
+    $("btnCreateTemplate").onclick = async () => {
+      $("templateErr").classList.add("hidden");
+      let def;
+      try {
+        def = JSON.parse($("tplDef").value || "{}");
+      } catch {
+        $("templateErr").textContent = "JSON da definição base inválido.";
+        $("templateErr").classList.remove("hidden");
+        return;
+      }
+      const keysRaw = $("tplHeaderKeys").value.trim();
+      const accessHeaderKeys = keysRaw
+        ? keysRaw.split(",").map((s) => s.trim()).filter(Boolean)
+        : undefined;
+      try {
+        await api("/mcp-templates", {
+          method: "POST",
+          body: JSON.stringify({
+            key: $("tplKey").value,
+            label: $("tplLabel").value,
+            description: $("tplDesc").value.trim() || undefined,
+            accessHeaderKeys,
+            def,
+          }),
+        });
+        loadMcpTemplates();
+        loadUsers();
+      } catch (e) {
+        $("templateErr").textContent = e.message;
+        $("templateErr").classList.remove("hidden");
+      }
     };
 
     $("btnRefreshRegistry").onclick = () => loadMcpRegistry();

@@ -11,7 +11,7 @@ import {
   signAdminSession,
   verifyAdminSession,
 } from "./session.js";
-import type { HubConnectionOverrides, HubUserLinkRecord } from "./types.js";
+import type { HubConnectionOverrides } from "./types.js";
 
 const SESSION_MS = 8 * 60 * 60 * 1000;
 
@@ -132,20 +132,18 @@ export function createHubAdminRouter(opts: {
   r.get("/api/users", requireAdmin, async (_req: Request, res: Response) => {
     await store.load();
     const users = store.listUsers();
-    const out = await Promise.all(
-      users.map(async (u) => ({
-        ...u,
-        links: store.linksForUser(u.id),
-      })),
-    );
+    const out = users.map((u) => ({
+      ...u,
+      tokens: store.listTokensForUser(u.id),
+    }));
     res.json({ users: out });
   });
 
   r.post("/api/users", requireAdmin, async (req: Request, res: Response) => {
     const body = parseJsonBody(req) as { label?: string };
     await store.load();
-    const { user, apiToken } = await store.createUser(String(body.label ?? ""));
-    res.status(201).json({ user, apiToken });
+    const { user } = await store.createUser(String(body.label ?? ""));
+    res.status(201).json({ user });
   });
 
   r.delete("/api/users/:id", requireAdmin, async (req: Request, res: Response) => {
@@ -158,50 +156,271 @@ export function createHubAdminRouter(opts: {
     res.json({ ok: true });
   });
 
-  r.post(
-    "/api/users/:id/links",
+  r.get(
+    "/api/users/:id/tokens",
     requireAdmin,
     async (req: Request, res: Response) => {
-      const body = parseJsonBody(req) as {
-        serverKey?: string;
-        connection?: HubConnectionOverrides;
-      };
-      const serverKey = String(body.serverKey ?? "").trim();
-      const keys = await getMergedServerKeys();
-      if (!serverKey || !keys.includes(serverKey)) {
-        res.status(400).json({ error: "serverKey inválido ou não existe no hub." });
-        return;
-      }
       await store.load();
       const uid = String(req.params.id ?? "");
       if (!store.getUserById(uid)) {
         res.status(404).json({ error: "Utilizador não encontrado." });
         return;
       }
-      const link = await store.addLink(uid, serverKey, body.connection ?? {});
-      res.status(201).json({ link });
+      res.json({ tokens: store.listTokensForUser(uid) });
     },
   );
 
-  r.put("/api/links/:linkId", requireAdmin, async (req: Request, res: Response) => {
-    const body = parseJsonBody(req) as { connection?: HubConnectionOverrides };
-    await store.load();
-    const updated = await store.updateLink(
-      String(req.params.linkId ?? ""),
-      body.connection ?? {},
-    );
-    if (!updated) {
-      res.status(404).json({ error: "Vínculo não encontrado." });
-      return;
-    }
-    res.json({ link: updated });
+  r.post(
+    "/api/users/:id/tokens",
+    requireAdmin,
+    async (req: Request, res: Response) => {
+      const body = parseJsonBody(req) as { label?: string };
+      await store.load();
+      const uid = String(req.params.id ?? "");
+      if (!store.getUserById(uid)) {
+        res.status(404).json({ error: "Utilizador não encontrado." });
+        return;
+      }
+      try {
+        const { token, secret } = await store.createToken(
+          uid,
+          String(body.label ?? ""),
+        );
+        res.status(201).json({ token, secret });
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e);
+        res.status(400).json({ error: msg });
+      }
+    },
+  );
+
+  r.delete(
+    "/api/users/:id/tokens/:tid",
+    requireAdmin,
+    async (req: Request, res: Response) => {
+      await store.load();
+      const uid = String(req.params.id ?? "");
+      const tid = String(req.params.tid ?? "");
+      const t = store.getTokenById(tid);
+      if (!t || t.userId !== uid) {
+        res.status(404).json({ error: "Token não encontrado." });
+        return;
+      }
+      await store.deleteToken(tid);
+      res.json({ ok: true });
+    },
+  );
+
+  r.get(
+    "/api/tokens/:tid/mcps",
+    requireAdmin,
+    async (req: Request, res: Response) => {
+      await store.load();
+      const tid = String(req.params.tid ?? "");
+      if (!store.getTokenById(tid)) {
+        res.status(404).json({ error: "Token não encontrado." });
+        return;
+      }
+      res.json({ mcps: store.mcpsForToken(tid) });
+    },
+  );
+
+  r.post(
+    "/api/tokens/:tid/mcps",
+    requireAdmin,
+    async (req: Request, res: Response) => {
+      const body = parseJsonBody(req) as {
+        label?: string;
+        url?: string;
+        headers?: Record<string, string>;
+        env?: Record<string, string>;
+        templateServerKey?: string;
+        templateId?: string;
+        connection?: HubConnectionOverrides;
+      };
+      await store.load();
+      const tid = String(req.params.tid ?? "");
+      if (!store.getTokenById(tid)) {
+        res.status(404).json({ error: "Token não encontrado." });
+        return;
+      }
+      if (body.templateServerKey?.trim()) {
+        const keys = await getMergedServerKeys();
+        if (!keys.includes(body.templateServerKey.trim())) {
+          res
+            .status(400)
+            .json({ error: "templateServerKey inválido ou não existe no hub." });
+          return;
+        }
+      }
+      if (body.templateId?.trim()) {
+        await registry.load();
+        const doc = await registry.getTemplateById(body.templateId.trim());
+        if (!doc) {
+          res.status(400).json({ error: "templateId inválido (template admin inexistente)." });
+          return;
+        }
+      }
+      try {
+        const mcp = await store.createMcp(tid, {
+          label: body.label,
+          url: body.url,
+          headers: body.headers,
+          env: body.env,
+          templateServerKey: body.templateServerKey,
+          templateId: body.templateId,
+          connection: body.connection,
+        });
+        res.status(201).json({ mcp });
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e);
+        res.status(400).json({ error: msg });
+      }
+    },
+  );
+
+  r.put(
+    "/api/tokens/:tid/mcps/:mid",
+    requireAdmin,
+    async (req: Request, res: Response) => {
+      const body = parseJsonBody(req) as {
+        label?: string;
+        url?: string;
+        headers?: Record<string, string>;
+        env?: Record<string, string>;
+        templateServerKey?: string;
+        templateId?: string;
+        connection?: HubConnectionOverrides;
+      };
+      await store.load();
+      const tid = String(req.params.tid ?? "");
+      const mid = String(req.params.mid ?? "");
+      const existing = store.getMcpById(mid);
+      if (!existing || existing.tokenId !== tid) {
+        res.status(404).json({ error: "MCP não encontrado." });
+        return;
+      }
+      if (body.templateServerKey !== undefined && body.templateServerKey.trim()) {
+        const keys = await getMergedServerKeys();
+        if (!keys.includes(body.templateServerKey.trim())) {
+          res
+            .status(400)
+            .json({ error: "templateServerKey inválido ou não existe no hub." });
+          return;
+        }
+      }
+      if (body.templateId !== undefined && body.templateId.trim()) {
+        await registry.load();
+        const doc = await registry.getTemplateById(body.templateId.trim());
+        if (!doc) {
+          res.status(400).json({ error: "templateId inválido (template admin inexistente)." });
+          return;
+        }
+      }
+      try {
+        const mcp = await store.updateMcp(mid, {
+          label: body.label,
+          url: body.url,
+          headers: body.headers,
+          env: body.env,
+          templateServerKey: body.templateServerKey,
+          templateId: body.templateId,
+          connection: body.connection,
+        });
+        res.json({ mcp });
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e);
+        res.status(400).json({ error: msg });
+      }
+    },
+  );
+
+  r.delete(
+    "/api/tokens/:tid/mcps/:mid",
+    requireAdmin,
+    async (req: Request, res: Response) => {
+      await store.load();
+      const tid = String(req.params.tid ?? "");
+      const mid = String(req.params.mid ?? "");
+      const existing = store.getMcpById(mid);
+      if (!existing || existing.tokenId !== tid) {
+        res.status(404).json({ error: "MCP não encontrado." });
+        return;
+      }
+      await store.deleteMcp(mid);
+      res.json({ ok: true });
+    },
+  );
+
+  r.get("/api/mcp-templates", requireAdmin, async (_req: Request, res: Response) => {
+    await registry.load();
+    const templates = await registry.listTemplates();
+    res.json({ collection: "mcp_templates", templates });
   });
 
-  r.delete("/api/links/:linkId", requireAdmin, async (req: Request, res: Response) => {
-    await store.load();
-    const ok = await store.deleteLink(String(req.params.linkId ?? ""));
+  r.post("/api/mcp-templates", requireAdmin, async (req: Request, res: Response) => {
+    const body = parseJsonBody(req) as {
+      key?: string;
+      label?: string;
+      def?: unknown;
+      description?: string;
+      accessHeaderKeys?: string[];
+    };
+    try {
+      if (body.def === undefined) {
+        res.status(400).json({ error: "Campo def (JSON do servidor MCP base) é obrigatório." });
+        return;
+      }
+      parseServerDef(body.def);
+      const doc = await registry.createTemplate({
+        key: String(body.key ?? ""),
+        label: String(body.label ?? ""),
+        def: body.def,
+        description: body.description,
+        accessHeaderKeys: body.accessHeaderKeys,
+      });
+      res.status(201).json({ template: doc });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      res.status(400).json({ error: msg });
+    }
+  });
+
+  r.put("/api/mcp-templates/:id", requireAdmin, async (req: Request, res: Response) => {
+    const body = parseJsonBody(req) as {
+      key?: string;
+      label?: string;
+      def?: unknown;
+      description?: string;
+      accessHeaderKeys?: string[];
+    };
+    try {
+      if (body.def !== undefined) {
+        parseServerDef(body.def);
+      }
+      const updated = await registry.updateTemplate(String(req.params.id ?? ""), {
+        key: body.key,
+        label: body.label,
+        def: body.def,
+        description: body.description,
+        accessHeaderKeys: body.accessHeaderKeys,
+      });
+      if (!updated) {
+        res.status(404).json({ error: "Template não encontrado." });
+        return;
+      }
+      res.json({ template: updated });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      res.status(400).json({ error: msg });
+    }
+  });
+
+  r.delete("/api/mcp-templates/:id", requireAdmin, async (req: Request, res: Response) => {
+    await registry.load();
+    const ok = await registry.deleteTemplateById(String(req.params.id ?? ""));
     if (!ok) {
-      res.status(404).json({ error: "Vínculo não encontrado." });
+      res.status(404).json({ error: "Template não encontrado." });
       return;
     }
     res.json({ ok: true });
@@ -277,7 +496,8 @@ export function createHubAdminRouter(opts: {
       usersFile: store.getDataPath(),
       mcpRegistryFile: registry.getFilePath(),
       nosql: "Coleção mcp_servers em JSON (substituível por MongoDB).",
-      hint: "Cliente MCP: cabeçalho X-MCP-Hub-User-Token com o apiToken do utilizador.",
+      hint:
+        "Cliente MCP: X-MCP-Hub-User-Token = secret de API token. Templates admin (mcp_templates): utilizador preenche connection.headers sobre a definição base.",
     });
   });
 

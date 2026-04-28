@@ -4,6 +4,7 @@
 import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import {
@@ -24,10 +25,7 @@ import { z } from "zod";
 import { createHubAdminRouter } from "./admin/router.js";
 import { getMcpRegistryStore } from "./admin/mcpRegistryStore.js";
 import { HubUserStore } from "./admin/store.js";
-import type {
-  HubConnectionOverrides,
-  HubUserLinkRecord,
-} from "./admin/types.js";
+import type { HubConnectionOverrides, TokenMcpRecord } from "./admin/types.js";
 
 const HubStdioServerDefSchema = z.object({
   command: z.string(),
@@ -325,28 +323,82 @@ function mergeConnectionIntoServerDef(
   };
 }
 
-/** Só entradas vinculadas ao utilizador (chaves presentes em `base` após filtro de módulo). */
-function buildHubConfigForLinkedUser(
-  base: HubConfig,
-  links: HubUserLinkRecord[],
-): HubConfig {
-  const mcpServers: Record<string, ServerDef> = {};
-  for (const link of links) {
-    const baseDef = base.mcpServers[link.serverKey];
-    if (!baseDef) {
-      continue;
-    }
-    mcpServers[link.serverKey] = mergeConnectionIntoServerDef(
-      baseDef,
-      link.connection,
-    );
-  }
-  if (Object.keys(mcpServers).length === 0) {
+/** Chave estável por token+MCP (nomes de tools no hub). */
+export function syntheticMcpServerKey(tokenId: string, mcpId: string): string {
+  const a = tokenId.replace(/-/g, "").slice(0, 8);
+  const b = mcpId.replace(/-/g, "").slice(0, 12);
+  return `t${a}_${b}`;
+}
+
+/** Chave injectada no `mcpServers` para definições em `mcp_templates` (registo). */
+export function hubTemplateInjectKey(templateDocId: string): string {
+  return `__hub_template__${templateDocId}`;
+}
+
+/**
+ * Constrói `mcpServers` a partir dos `token_mcps`: URL directa (streamableHttp),
+ * catálogo global (`templateServerKey` + `connection`) ou template admin (`templateId` + `connection`).
+ */
+export function buildHubConfigForApiToken(
+  hubCfgBase: HubConfig,
+  mcps: TokenMcpRecord[],
+  tokenId: string,
+): {
+  hubCfg: HubConfig;
+  extraEnvByServer: Record<string, EnvLookup>;
+} {
+  if (mcps.length === 0) {
     throw new Error(
-      "Nenhum MCP vinculado coincide com esta sessão (verifica módulo WMS/TAR e chaves no mcp-hub.config.json).",
+      "Este token de API não tem MCPs configurados (adiciona entradas no painel admin).",
     );
   }
-  return { mcpServers };
+  const mcpServers: Record<string, ServerDef> = {};
+  const extraEnvByServer: Record<string, EnvLookup> = {};
+
+  for (const m of mcps) {
+    const key = syntheticMcpServerKey(tokenId, m.id);
+    const url = m.url?.trim();
+    const tpl = m.templateServerKey?.trim();
+    const tid = m.templateId?.trim();
+    const modeCount = [Boolean(url), Boolean(tpl), Boolean(tid)].filter(Boolean)
+      .length;
+    if (modeCount !== 1) {
+      throw new Error(
+        "Cada MCP tem de ser exactamente um modo: url directa, templateServerKey (catálogo) ou templateId (template admin).",
+      );
+    }
+    if (url) {
+      const headers = { ...(m.headers ?? {}) };
+      mcpServers[key] = {
+        streamableHttp: {
+          url,
+          headers: Object.keys(headers).length ? headers : undefined,
+        },
+      };
+    } else if (tpl) {
+      const baseDef = hubCfgBase.mcpServers[tpl];
+      if (!baseDef) {
+        throw new Error(
+          `Servidor MCP de catálogo "${tpl}" não existe nesta sessão (módulo WMS/TAR ou chave inexistente).`,
+        );
+      }
+      mcpServers[key] = mergeConnectionIntoServerDef(baseDef, m.connection);
+    } else {
+      const inj = hubTemplateInjectKey(tid!);
+      const baseDef = hubCfgBase.mcpServers[inj];
+      if (!baseDef) {
+        throw new Error(
+          `Template administrativo "${tid}" não existe ou foi removido do registo.`,
+        );
+      }
+      mcpServers[key] = mergeConnectionIntoServerDef(baseDef, m.connection);
+    }
+    extraEnvByServer[key] = {
+      ...(m.env ?? {}),
+      ...(m.connection?.env ?? {}),
+    };
+  }
+  return { hubCfg: { mcpServers }, extraEnvByServer };
 }
 
 function expandServerDef(def: ServerDef, env: EnvLookup): ServerDef {
@@ -580,29 +632,37 @@ async function resolveHubConfigForHttpSession(
   moduleTag: HubModuleTag | null,
   store: HubUserStore,
 ): Promise<ResolvedHubConfig> {
-  const hubCfgBase = sessionHubConfig(fullConfig, moduleTag);
-  const token = headerOne(req, "x-mcp-hub-user-token");
-  if (!token) {
+  const tokenHdr = headerOne(req, "x-mcp-hub-user-token");
+  if (!tokenHdr) {
+    const hubCfgBase = sessionHubConfig(fullConfig, moduleTag);
     return { ok: true, hubCfg: hubCfgBase };
   }
   await store.load();
-  const user = store.getUserByToken(token);
-  if (!user) {
+  const apiToken = store.getApiTokenBySecret(tokenHdr);
+  if (!apiToken) {
     return {
       ok: false,
       httpStatus: 401,
       message: "X-MCP-Hub-User-Token inválido ou revogado.",
     };
   }
-  const links = store.linksForUser(user.id);
+  const mcps = store.mcpsForToken(apiToken.id);
+  const usesCatalogTemplate = mcps.some((m) =>
+    Boolean(m.templateServerKey?.trim()),
+  );
+  const moduleForCatalog =
+    usesCatalogTemplate || mcps.length === 0 ? moduleTag : null;
+  const hubCfgFiltered = sessionHubConfig(fullConfig, moduleForCatalog);
+  const tplFrag = await loadRegistryTemplatesHubFragment();
+  const hubCfgBase: HubConfig = {
+    mcpServers: { ...hubCfgFiltered.mcpServers, ...tplFrag.mcpServers },
+  };
   try {
-    const hubCfg = buildHubConfigForLinkedUser(hubCfgBase, links);
-    const extraEnvByServer: Record<string, EnvLookup> = {};
-    for (const l of links) {
-      if (hubCfg.mcpServers[l.serverKey]) {
-        extraEnvByServer[l.serverKey] = { ...(l.connection.env ?? {}) };
-      }
-    }
+    const { hubCfg, extraEnvByServer } = buildHubConfigForApiToken(
+      hubCfgBase,
+      mcps,
+      apiToken.id,
+    );
     return { ok: true, hubCfg, extraEnvByServer };
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
@@ -637,6 +697,16 @@ async function loadMergedHubConfig(): Promise<HubConfig> {
     merged[d.key] = HubServerDefSchema.parse(d.def);
   }
   return { mcpServers: merged };
+}
+
+/** Fragmento a fundir na config da sessão: templates admin (`mcp_templates`). */
+async function loadRegistryTemplatesHubFragment(): Promise<HubConfig> {
+  const templates = await getMcpRegistryStore().listTemplates();
+  const mcpServers: Record<string, ServerDef> = {};
+  for (const t of templates) {
+    mcpServers[hubTemplateInjectKey(t._id)] = HubServerDefSchema.parse(t.def);
+  }
+  return { mcpServers };
 }
 
 async function listAllTools(client: Client) {
@@ -692,6 +762,7 @@ export function buildHubMcpServer(upstreams: Upstream[]): McpServer {
         "Não há prompts nem resources neste hub — no Cursor só a secção Tools mostrará entradas.",
         "Cada nome é prefixado como SERVIDOR__ferramenta. Usa mcp_hub__meta para o mapa completo.",
         "e-ship (HTTP): X-Eship-Api-Key-WMS / X-Eship-Api-Key-TAR (chaves por módulo) ou X-Eship-Api-Key; URL base X-Eship-Api-Base-Url / X-Api-Base-Url. API-WMS/APIKEY-TAR = só um módulo. _meta: eshipApiKeyWms, eshipApiKeyTar, eshipApiBaseUrl. stdio: env.",
+        "X-MCP-Hub-User-Token: secret de API token (painel admin); MCPs só por URL directa ignoram o filtro WMS/TAR.",
       ].join("\n"),
     },
   );
@@ -1069,9 +1140,9 @@ async function serveHttp() {
       hubAdmin: "/hub-admin",
       hubAdminLoginEnabled: hubAdminEnabled,
       mcpRegistry:
-        "Coleção NoSQL em disco (mcp_servers): MCP_HUB_MCP_REGISTRY_FILE; mescla com mcp-hub.config.json.",
+        "Registo NoSQL em disco (mcp_servers + mcp_templates): MCP_HUB_MCP_REGISTRY_FILE; mescla servidores com mcp-hub.config.json.",
       hubUserToken:
-        "Opcional: cabeçalho X-MCP-Hub-User-Token no initialize (utilizador criado na UI admin).",
+        "Opcional: cabeçalho X-MCP-Hub-User-Token = secret de um API token (vários por utilizador na UI admin). Só MCPs directos por URL: o filtro de módulo WMS/TAR não se aplica a esse token.",
       eshipAuth:
         "initialize: chave + URL base http(s). Proxy: MCP_HUB_TRUST_PROXY=1. OAuth PRM: MCP_HUB_OAUTH_PUBLIC_ORIGIN / MCP_HUB_OAUTH_RESOURCE_URL; MCP_HUB_OAUTH_COERCE_HTTPS=0 em dev só-http.",
       sseLegacy: `GET ${basePath} com Accept: text/event-stream + POST ${basePath}/messages?sessionId=… (clientes com fallback SSE).`,
@@ -1477,7 +1548,12 @@ async function main() {
   await serveStdio(upstreams);
 }
 
-main().catch((e) => {
-  console.error(e);
-  process.exit(1);
-});
+const hubEntry =
+  process.argv[1] &&
+  pathToFileURL(resolve(process.argv[1])).href === import.meta.url;
+if (hubEntry) {
+  main().catch((e) => {
+    console.error(e);
+    process.exit(1);
+  });
+}

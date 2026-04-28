@@ -15,12 +15,31 @@ export type McpServerDocument = {
   updatedAt: string;
 };
 
+/**
+ * Template MCP definido pelo admin: URL/definição base fixa; utilizadores finais
+ * escolhem o template e preenchem sobretudo cabeçalhos de acesso em `connection.headers`.
+ */
+export type McpTemplateDocument = {
+  _id: string;
+  /** Identificador curto único (UI); não confunde com chaves do catálogo `mcp_servers`. */
+  key: string;
+  label: string;
+  description?: string;
+  /** Definição MCP (stdio ou streamableHttp); use `${VAR}` nos headers quando fizer sentido. */
+  def: unknown;
+  /** Nomes de cabeçalhos que o painel sugere para preenchimento (só UX). */
+  accessHeaderKeys?: string[];
+  createdAt: string;
+  updatedAt: string;
+};
+
 type RegistryFile = {
   /** Nome de coleção estilo NoSQL */
   mcp_servers: McpServerDocument[];
+  mcp_templates?: McpTemplateDocument[];
 };
 
-const empty: RegistryFile = { mcp_servers: [] };
+const empty: RegistryFile = { mcp_servers: [], mcp_templates: [] };
 
 function defaultRegistryPath(): string {
   const o = process.env.MCP_HUB_MCP_REGISTRY_FILE?.trim();
@@ -73,13 +92,24 @@ export class McpRegistryStore {
         "mcp_servers" in parsed &&
         Array.isArray((parsed as RegistryFile).mcp_servers)
       ) {
+        const p = parsed as RegistryFile;
+        const templatesRaw = Array.isArray(p.mcp_templates)
+          ? p.mcp_templates
+          : [];
         this.data = {
-          mcp_servers: (parsed as RegistryFile).mcp_servers.filter(
+          mcp_servers: p.mcp_servers.filter(
             (d): d is McpServerDocument =>
               d != null &&
               typeof d === "object" &&
               typeof (d as McpServerDocument)._id === "string" &&
               typeof (d as McpServerDocument).key === "string",
+          ),
+          mcp_templates: templatesRaw.filter(
+            (d): d is McpTemplateDocument =>
+              d != null &&
+              typeof d === "object" &&
+              typeof (d as McpTemplateDocument)._id === "string" &&
+              typeof (d as McpTemplateDocument).key === "string",
           ),
         };
       } else {
@@ -104,6 +134,23 @@ export class McpRegistryStore {
   async list(): Promise<McpServerDocument[]> {
     await this.load();
     return [...this.data.mcp_servers];
+  }
+
+  async listTemplates(): Promise<McpTemplateDocument[]> {
+    await this.load();
+    return [...(this.data.mcp_templates ?? [])];
+  }
+
+  async getTemplateById(id: string): Promise<McpTemplateDocument | undefined> {
+    await this.load();
+    return (this.data.mcp_templates ?? []).find((d) => d._id === id);
+  }
+
+  templateKeyExists(key: string, exceptId?: string): boolean {
+    const k = key.trim();
+    return (this.data.mcp_templates ?? []).some(
+      (d) => d.key === k && d._id !== exceptId,
+    );
   }
 
   async getById(id: string): Promise<McpServerDocument | undefined> {
@@ -190,6 +237,118 @@ export class McpRegistryStore {
     const before = this.data.mcp_servers.length;
     this.data.mcp_servers = this.data.mcp_servers.filter((d) => d._id !== id);
     if (this.data.mcp_servers.length === before) {
+      return false;
+    }
+    await this.persist();
+    return true;
+  }
+
+  async createTemplate(input: {
+    key: string;
+    label: string;
+    def: unknown;
+    description?: string;
+    accessHeaderKeys?: string[];
+  }): Promise<McpTemplateDocument> {
+    await this.load();
+    if (!this.data.mcp_templates) {
+      this.data.mcp_templates = [];
+    }
+    const k = input.key.trim();
+    if (!k) {
+      throw new Error("A chave (key) do template é obrigatória.");
+    }
+    if (!/^[a-zA-Z0-9_.-]+$/.test(k)) {
+      throw new Error(
+        "Chave inválida: use apenas letras, números, _ , - e .",
+      );
+    }
+    if (this.templateKeyExists(k)) {
+      throw new Error(`Já existe um template com a chave "${k}".`);
+    }
+    const now = new Date().toISOString();
+    const doc: McpTemplateDocument = {
+      _id: randomUUID(),
+      key: k,
+      label: (input.label || k).trim(),
+      description: input.description?.trim() || undefined,
+      def: input.def,
+      accessHeaderKeys: (() => {
+        const raw = input.accessHeaderKeys;
+        if (!raw?.length) {
+          return undefined;
+        }
+        const out = raw.map((h) => String(h).trim()).filter(Boolean);
+        return out.length ? out : undefined;
+      })(),
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.data.mcp_templates.push(doc);
+    await this.persist();
+    return doc;
+  }
+
+  async updateTemplate(
+    id: string,
+    patch: {
+      key?: string;
+      label?: string;
+      def?: unknown;
+      description?: string;
+      accessHeaderKeys?: string[];
+    },
+  ): Promise<McpTemplateDocument | undefined> {
+    await this.load();
+    const list = this.data.mcp_templates ?? [];
+    const idx = list.findIndex((d) => d._id === id);
+    if (idx === -1) {
+      return undefined;
+    }
+    const cur = list[idx]!;
+    const newKey = patch.key !== undefined ? patch.key.trim() : cur.key;
+    if (!newKey) {
+      throw new Error("Chave vazia.");
+    }
+    if (!/^[a-zA-Z0-9_.-]+$/.test(newKey)) {
+      throw new Error(
+        "Chave inválida: use apenas letras, números, _ , - e .",
+      );
+    }
+    if (newKey !== cur.key && this.templateKeyExists(newKey, id)) {
+      throw new Error(`Já existe um template com a chave "${newKey}".`);
+    }
+    const keys =
+      patch.accessHeaderKeys !== undefined ?
+        patch.accessHeaderKeys
+          .map((h) => String(h).trim())
+          .filter(Boolean)
+      : cur.accessHeaderKeys;
+    const updated: McpTemplateDocument = {
+      ...cur,
+      key: newKey,
+      label:
+        patch.label !== undefined ? String(patch.label).trim() : cur.label,
+      def: patch.def !== undefined ? patch.def : cur.def,
+      description:
+        patch.description !== undefined ?
+          patch.description.trim() || undefined
+        : cur.description,
+      accessHeaderKeys: keys?.length ? keys : undefined,
+      updatedAt: new Date().toISOString(),
+    };
+    list[idx] = updated;
+    this.data.mcp_templates = list;
+    await this.persist();
+    return updated;
+  }
+
+  async deleteTemplateById(id: string): Promise<boolean> {
+    await this.load();
+    const list = this.data.mcp_templates ?? [];
+    const before = list.length;
+    this.data.mcp_templates = list.filter((d) => d._id !== id);
+    if ((this.data.mcp_templates ?? []).length === before) {
       return false;
     }
     await this.persist();
