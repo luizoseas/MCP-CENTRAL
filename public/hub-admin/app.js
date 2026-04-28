@@ -70,21 +70,21 @@ function parseRoute() {
 
   if (name === "mcps" && seg(1)) {
     if (seg(2) === "edit" && seg(3)) {
-      return { name: "mcp-edit", tokenId: seg(1), mcpId: seg(3), ...empty };
+      return { ...empty, name: "mcp-edit", tokenId: seg(1), mcpId: seg(3) };
     }
-    return { name: "mcps", tokenId: seg(1), ...empty };
+    return { ...empty, name: "mcps", tokenId: seg(1) };
   }
   if (name === "utilizadores" && seg(1) === "edit" && seg(2)) {
-    return { name: "user-edit", userId: seg(2), ...empty };
+    return { ...empty, name: "user-edit", userId: seg(2) };
   }
   if (name === "templates" && seg(1) === "edit" && seg(2)) {
-    return { name: "template-edit", templateId: seg(2), ...empty };
+    return { ...empty, name: "template-edit", templateId: seg(2) };
   }
   if (name === "catalogo" && seg(1) === "edit" && seg(2)) {
-    return { name: "catalog-edit", docId: seg(2), ...empty };
+    return { ...empty, name: "catalog-edit", docId: seg(2) };
   }
 
-  return { name, ...empty };
+  return { ...empty, name };
 }
 
 function navMark() {
@@ -538,7 +538,9 @@ async function renderTemplates(view) {
 
 async function renderTemplateEdit(view, templateId) {
   const { templates } = await api("/mcp-templates");
-  const doc = (templates || []).find((x) => x._id === templateId);
+  const doc = (templates || []).find((x) =>
+    sameEntityId(String(x._id ?? ""), String(templateId ?? "")),
+  );
   if (!doc) {
     view.innerHTML = `<p class="feedback feedback--err">Template não encontrado.</p><p class="back-row"><a href="#/templates">← Templates</a></p>`;
     return;
@@ -579,7 +581,7 @@ async function renderTemplateEdit(view, templateId) {
       ? keysRaw.split(",").map((s) => s.trim()).filter(Boolean)
       : undefined;
     try {
-      await api(`/mcp-templates/${templateId}`, {
+      await api(`/mcp-templates/${doc._id}`, {
         method: "PUT",
         body: JSON.stringify({
           key: $("etplKey").value.trim(),
@@ -679,7 +681,9 @@ async function renderCatalogo(view) {
 
 async function renderCatalogEdit(view, docId) {
   const { documents } = await api("/mcp-registry");
-  const doc = (documents || []).find((x) => x._id === docId);
+  const doc = (documents || []).find((x) =>
+    sameEntityId(String(x._id ?? ""), String(docId ?? "")),
+  );
   if (!doc) {
     view.innerHTML = `<p class="feedback feedback--err">Documento não encontrado.</p><p class="back-row"><a href="#/catalogo">← Catálogo</a></p>`;
     return;
@@ -712,7 +716,7 @@ async function renderCatalogEdit(view, docId) {
       return;
     }
     try {
-      await api(`/mcp-registry/${docId}`, {
+      await api(`/mcp-registry/${doc._id}`, {
         method: "PUT",
         body: JSON.stringify({
           key: $("eregKey").value.trim(),
@@ -915,27 +919,27 @@ async function renderMcps(view, tokenId) {
     view.innerHTML = `
       <div class="panel">
         <h3 class="section-title">Seleccionar API key</h3>
-        <p class="section-lead">Escolhe o token para gerir os MCPs vinculados (URL, catálogo ou template admin + variáveis).</p>
-        <label for="pickTok">Token</label>
-        <select id="pickTok" aria-describedby="pickTokErr">
-          <option value="">— Escolher —</option>
-          ${flat
-            .map(
-              (t) =>
-                `<option value="${esc(t.id)}">${esc(t.userLabel)} · ${esc(t.label)} (${esc(t.id).slice(0, 8)}…)</option>`,
-            )
-            .join("")}
-        </select>
-        <p id="pickTokErr" class="feedback feedback--err hidden" role="alert"></p>
-        <div class="btn-row">
-          <button type="button" id="btnGoMcps">Abrir</button>
-        </div>
+        <p class="section-lead">Escolhe o token para ver e gerir os MCPs vinculados, adicionar novos ou editar os existentes.</p>
+        <form id="mcpsPickForm" class="mcps-pick-form">
+          <label for="pickTok">Token</label>
+          <select id="pickTok" name="token" aria-describedby="pickTokErr">
+            <option value="">— Escolher —</option>
+            ${flat
+              .map(
+                (t) =>
+                  `<option value="${esc(t.id)}">${esc(t.userLabel)} · ${esc(t.label)} (${esc(t.id).slice(0, 8)}…)</option>`,
+              )
+              .join("")}
+          </select>
+          <p id="pickTokErr" class="feedback feedback--err hidden" role="alert"></p>
+          <div class="btn-row">
+            <button type="submit" id="btnGoMcps">Abrir</button>
+          </div>
+        </form>
       </div>`;
-    $("pickTok")?.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") {
-        e.preventDefault();
-        tryNavigateMcpsPicker();
-      }
+    $("mcpsPickForm")?.addEventListener("submit", (e) => {
+      e.preventDefault();
+      tryNavigateMcpsPicker();
     });
     return;
   }
@@ -1179,11 +1183,6 @@ window.addEventListener("hashchange", () => {
   }
 });
 
-$("appView")?.addEventListener("click", (ev) => {
-  if (!ev.target.closest("#btnGoMcps")) return;
-  tryNavigateMcpsPicker();
-});
-
 async function applyLoginUiMode() {
   const lead = $("loginLead");
   const wrap = $("loginUserWrap");
@@ -1194,8 +1193,7 @@ async function applyLoginUiMode() {
       wrap?.classList.remove("hidden");
       userIn?.setAttribute("required", "required");
       if (lead) {
-        lead.textContent =
-          "Utilizador e palavra-passe do domínio (LDAP). O nome «admin» (reservado) usa a palavra-passe local definida no hub (MCP_HUB_ADMIN_PASSWORD).";
+        lead.textContent = "Introduz as credenciais de acesso ao painel.";
       }
     } else {
       wrap?.classList.add("hidden");

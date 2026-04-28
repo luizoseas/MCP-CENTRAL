@@ -28,7 +28,11 @@ import {
 } from "./admin/mongoHubPersistence.js";
 import { createHubAdminRouter } from "./admin/router.js";
 import { getMcpRegistryStore } from "./admin/mcpRegistryStore.js";
-import type { HubLdapOptions } from "./admin/ldapAuth.js";
+import {
+  upnDomainFromBaseDn,
+  type HubLdapOptions,
+  type HubLdapServiceOptions,
+} from "./admin/ldapAuth.js";
 import { HubUserStore } from "./admin/store.js";
 import type { HubConnectionOverrides, TokenMcpRecord } from "./admin/types.js";
 
@@ -945,7 +949,7 @@ type SseSessionBundle = {
   upstreams: Upstream[];
 };
 
-function readLdapSearchScope(): HubLdapOptions["searchScope"] {
+function readLdapSearchScope(): HubLdapServiceOptions["searchScope"] {
   const s = process.env.MCP_HUB_LDAP_SEARCH_SCOPE?.trim().toLowerCase();
   if (s === "base") {
     return "base";
@@ -959,30 +963,57 @@ function readLdapSearchScope(): HubLdapOptions["searchScope"] {
 /** Lê opções LDAP do ambiente; devolve null se faltar algum campo obrigatório. */
 function buildHubLdapOptions(): HubLdapOptions | null {
   const url = process.env.MCP_HUB_LDAP_URL?.trim();
+  if (!url) {
+    return null;
+  }
   const bindDn = process.env.MCP_HUB_LDAP_BIND_DN?.trim();
   const bindPassword = process.env.MCP_HUB_LDAP_BIND_PASSWORD?.trim();
   const userSearchBase = process.env.MCP_HUB_LDAP_USER_SEARCH_BASE?.trim();
-  if (!url || !bindDn || !bindPassword || !userSearchBase) {
-    return null;
-  }
-  const userFilter =
-    process.env.MCP_HUB_LDAP_USER_FILTER?.trim() ||
-    "(&(objectCategory=person)(sAMAccountName={{username}}))";
   const parsedTimeout = Number(process.env.MCP_HUB_LDAP_TIMEOUT_MS?.trim());
   const connectTimeoutMs = Number.isFinite(parsedTimeout)
     ? Math.max(1000, parsedTimeout)
     : 8000;
   const tlsRejectUnauthorized =
     process.env.MCP_HUB_LDAP_TLS_INSECURE?.trim() === "1";
+  const conn = { url, connectTimeoutMs, tlsRejectUnauthorized };
+
+  if (bindDn || bindPassword) {
+    if (!bindDn || !bindPassword || !userSearchBase) {
+      return null;
+    }
+    const userFilter =
+      process.env.MCP_HUB_LDAP_USER_FILTER?.trim() ||
+      "(&(objectCategory=person)(sAMAccountName={{username}}))";
+    return {
+      authMode: "service",
+      ...conn,
+      bindDn,
+      bindPassword,
+      userSearchBase,
+      userFilter,
+      searchScope: readLdapSearchScope(),
+    };
+  }
+
+  const baseDn =
+    process.env.MCP_HUB_LDAP_BASE_DN?.trim() ||
+    userSearchBase ||
+    "";
+  const explicitTemplate = process.env.MCP_HUB_LDAP_USER_DN_TEMPLATE?.trim();
+  let userBindIdentityTemplate = explicitTemplate;
+  if (!userBindIdentityTemplate && baseDn) {
+    const domain = upnDomainFromBaseDn(baseDn);
+    if (domain) {
+      userBindIdentityTemplate = `{{username}}@${domain}`;
+    }
+  }
+  if (!userBindIdentityTemplate?.includes("{{username}}")) {
+    return null;
+  }
   return {
-    url,
-    bindDn,
-    bindPassword,
-    userSearchBase,
-    userFilter,
-    searchScope: readLdapSearchScope(),
-    connectTimeoutMs,
-    tlsRejectUnauthorized,
+    authMode: "direct",
+    ...conn,
+    userBindIdentityTemplate,
   };
 }
 

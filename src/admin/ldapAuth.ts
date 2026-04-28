@@ -1,7 +1,8 @@
 import { Client, InvalidCredentialsError } from "ldapts";
 
-/** Opções de ligação e pesquisa LDAP para autenticação no painel admin. */
-export type HubLdapOptions = {
+/** Ligação com conta de serviço + pesquisa + bind do utilizador. */
+export type HubLdapServiceOptions = {
+  authMode: "service";
   url: string;
   bindDn: string;
   bindPassword: string;
@@ -14,9 +15,46 @@ export type HubLdapOptions = {
   tlsRejectUnauthorized: boolean;
 };
 
+/**
+ * Só URL + base no ambiente; utilizador e palavra-passe vêm do cliente.
+ * Identidade de bind = substituir `{{username}}` no modelo, excepto se o
+ * cliente enviar já UPN (`@`) ou DN (`dn=` / `cn=`, etc.).
+ */
+export type HubLdapDirectOptions = {
+  authMode: "direct";
+  url: string;
+  /** Deve conter `{{username}}` (excepto quando o login já é UPN/DN completo). */
+  userBindIdentityTemplate: string;
+  connectTimeoutMs: number;
+  tlsRejectUnauthorized: boolean;
+};
+
+export type HubLdapOptions = HubLdapServiceOptions | HubLdapDirectOptions;
+
 export type LdapVerifyResult =
   | { ok: true }
   | { ok: false; error: string; statusCode?: number };
+
+/** Opções comuns à ligação TCP/TLS. */
+export type HubLdapConnectionFields = {
+  url: string;
+  connectTimeoutMs: number;
+  tlsRejectUnauthorized: boolean;
+};
+
+/** Extrai domínio estilo DNS a partir de componentes `DC=` do DN (esq.→dir.: eship.local). */
+export function upnDomainFromBaseDn(baseDn: string): string | null {
+  const parts = baseDn.split(",").map((p) => p.trim());
+  const dcs: string[] = [];
+  for (const p of parts) {
+    const m = /^dc=(.+)$/i.exec(p);
+    if (m) dcs.push(m[1]!);
+  }
+  if (dcs.length === 0) {
+    return null;
+  }
+  return dcs.join(".");
+}
 
 /** Escapa um valor para uso dentro de um filtro LDAP (RFC4515). */
 export function escapeLdapFilterValue(value: string): string {
@@ -28,7 +66,7 @@ export function escapeLdapFilterValue(value: string): string {
     .replace(/\*/g, "\\2a");
 }
 
-function clientOptions(opts: HubLdapOptions) {
+function clientOptions(opts: HubLdapConnectionFields) {
   const o: ConstructorParameters<typeof Client>[0] = {
     url: opts.url,
     connectTimeout: opts.connectTimeoutMs,
@@ -65,7 +103,7 @@ function isLdapResultCodeError(
 
 function describeLdapOrNetworkError(err: unknown, phase: string): string {
   if (err instanceof InvalidCredentialsError) {
-    if (phase === "userBind") {
+    if (phase === "userBind" || phase === "directBind") {
       return "LDAP: palavra-passe incorrecta para este utilizador (credenciais inválidas no servidor).";
     }
     if (phase === "serviceBind") {
@@ -96,10 +134,30 @@ function describeLdapOrNetworkError(err: unknown, phase: string): string {
   return `Erro desconhecido (${phase}).`;
 }
 
+/** Resolve identidade para simple bind (UPN, DN ou modelo com {{username}}). */
+export function resolveDirectBindIdentity(
+  template: string,
+  username: string,
+): string {
+  const user = username.trim();
+  if (!user) {
+    return "";
+  }
+  const looksLikeFullPrincipal =
+    user.includes("@") ||
+    /^([a-z]+)=/i.test(user) ||
+    user.includes("\\"); /* DOMAIN\user */
+  if (looksLikeFullPrincipal) {
+    return user;
+  }
+  return template.replace(/\{\{username\}\}/g, user);
+}
+
 /**
- * Valida utilizador + palavra-passe: bind de serviço, pesquisa uma entrada,
- * bind com DN encontrado e palavra-passe do utilizador.
- * Não usar para o utilizador reservado «admin» (tratado no router com palavra-passe local).
+ * Valida utilizador + palavra-passe contra LDAP.
+ * - `direct`: um único bind com credenciais do cliente.
+ * - `service`: bind de serviço, pesquisa, bind do utilizador.
+ * O utilizador reservado «admin» é tratado no router (palavra-passe local).
  */
 export async function verifyLdapUserPassword(
   opts: HubLdapOptions,
@@ -111,6 +169,45 @@ export async function verifyLdapUserPassword(
   if (!user || !pw) {
     return { ok: false, error: "Utilizador e palavra-passe são obrigatórios." };
   }
+
+  if (opts.authMode === "direct") {
+    if (!opts.userBindIdentityTemplate.includes("{{username}}")) {
+      return {
+        ok: false,
+        error:
+          "Configuração LDAP: o modelo de identidade (MCP_HUB_LDAP_USER_DN_TEMPLATE) tem de incluir {{username}}.",
+        statusCode: 500,
+      };
+    }
+    const identity = resolveDirectBindIdentity(
+      opts.userBindIdentityTemplate,
+      user,
+    );
+    if (!identity) {
+      return { ok: false, error: "Indica o utilizador." };
+    }
+    const client = new Client(clientOptions(opts));
+    try {
+      await client.bind(identity, pw);
+      await safeUnbind(client);
+      return { ok: true };
+    } catch (err) {
+      await safeUnbind(client);
+      if (err instanceof InvalidCredentialsError || isLdapResultCodeError(err)) {
+        return {
+          ok: false,
+          error: describeLdapOrNetworkError(err, "directBind"),
+          statusCode: 401,
+        };
+      }
+      return {
+        ok: false,
+        error: describeLdapOrNetworkError(err, "directBind"),
+        statusCode: 503,
+      };
+    }
+  }
+
   if (!opts.userFilter.includes("{{username}}")) {
     return {
       ok: false,
