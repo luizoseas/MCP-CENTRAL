@@ -9,6 +9,47 @@ let hubConfig = {
   mcpHttpPath: "/mcp",
 };
 
+/** Modelo por defeito ao vincular MCP por template administrativo (substitui os valores de exemplo). */
+const MCP_ADMIN_ACCESS_JSON_DEFAULT = JSON.stringify(
+  {
+    headers: {
+      "X-Eship-Api-Key": "suapikeyaqui",
+      "X-Eship-Api-Base-Url": "https://seusistemaqui.eship.com.br/v3",
+    },
+    env: {},
+  },
+  null,
+  2,
+);
+
+/**
+ * JSON do campo «template administrativo» → `connection` da API.
+ * Aceita `{"headers":{...},"env":{}}` ou o formato legado (só o mapa de cabeçalhos).
+ */
+function parseAdminTemplateConnectionJson(text) {
+  const raw = JSON.parse(String(text ?? "").trim() || "{}");
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    throw new Error("JSON inválido.");
+  }
+  if (
+    Object.prototype.hasOwnProperty.call(raw, "headers") &&
+    raw.headers !== null &&
+    typeof raw.headers === "object" &&
+    !Array.isArray(raw.headers)
+  ) {
+    const headers = raw.headers;
+    const env =
+      raw.env !== null &&
+      typeof raw.env === "object" &&
+      !Array.isArray(raw.env) &&
+      Object.keys(raw.env).length > 0
+        ? raw.env
+        : undefined;
+    return env ? { headers, env } : { headers };
+  }
+  return { headers: raw };
+}
+
 function esc(s) {
   const d = document.createElement("div");
   d.textContent = s == null ? "" : String(s);
@@ -209,11 +250,13 @@ function wireMcpFormPanel(root, tokenId, servers, tplList, edit) {
           alert("Escolhe um template administrativo.");
           return;
         }
-        const headers = JSON.parse(root.querySelector(".mcp-access-headers").value || "{}");
+        const connection = parseAdminTemplateConnectionJson(
+          root.querySelector(".mcp-access-headers").value,
+        );
         body = {
           label: root.querySelector(".mcp-label").value.trim() || undefined,
           templateId,
-          connection: { headers },
+          connection,
         };
       }
     } catch {
@@ -850,7 +893,14 @@ async function renderMcpEdit(view, tokenId, mcpId) {
   const hdrs = JSON.stringify(m.headers || {}, null, 2);
   const envs = JSON.stringify(m.env || {}, null, 2);
   const conn = JSON.stringify(m.connection || { headers: {}, env: {} }, null, 2);
-  const accHdr = JSON.stringify(m.connection?.headers || {}, null, 2);
+  const accHdr = JSON.stringify(
+    {
+      headers: m.connection?.headers ?? {},
+      env: m.connection?.env ?? {},
+    },
+    null,
+    2,
+  );
   const tplOpts = tplOptsHtml(tplList, m.templateId);
   const srvOpts = serverOptsHtml(servers, m.templateServerKey);
 
@@ -892,7 +942,8 @@ async function renderMcpEdit(view, tokenId, mcpId) {
         <select class="mcp-admin-template-id">${tplOpts}</select>
         <p class="sub mcp-tpl-hint" role="note"></p>
         <label class="label-like" style="margin-top:0.65rem;">Cabeçalhos de acesso (JSON)</label>
-        <textarea class="mcp-access-headers" rows="5">${esc(accHdr)}</textarea>
+        <p class="sub" style="margin:0 0 0.35rem;">Modelo com <code>headers</code> (ex.: e-ship) e opcionalmente <code>env</code>.</p>
+        <textarea class="mcp-access-headers" rows="10">${esc(accHdr)}</textarea>
       </div>
       <div class="btn-row">
         <button type="button" class="btn-save-mcp">Guardar alterações</button>
@@ -1014,7 +1065,8 @@ async function renderMcps(view, tokenId) {
         <select class="mcp-admin-template-id">${tplOpts}</select>
         <p class="sub mcp-tpl-hint" role="note"></p>
         <label class="label-like" style="margin-top:0.65rem;">Cabeçalhos de acesso (JSON)</label>
-        <textarea class="mcp-access-headers" rows="4">{}</textarea>
+        <p class="sub" style="margin:0 0 0.35rem;">Modelo com <code>headers</code> (ex.: e-ship) e opcionalmente <code>env</code>.</p>
+        <textarea class="mcp-access-headers" rows="10">${esc(MCP_ADMIN_ACCESS_JSON_DEFAULT)}</textarea>
       </div>
       <div class="btn-row"><button type="button" class="btn-add-mcp">Adicionar MCP</button></div>
     </div>`;

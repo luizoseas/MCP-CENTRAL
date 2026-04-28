@@ -101,18 +101,34 @@ function isLdapResultCodeError(
   );
 }
 
+function isServiceBindPhase(phase: string): boolean {
+  return phase === "serviceBind" || phase === "bindServico";
+}
+
 function describeLdapOrNetworkError(err: unknown, phase: string): string {
   if (err instanceof InvalidCredentialsError) {
     if (phase === "userBind" || phase === "directBind") {
       return "LDAP: palavra-passe incorrecta para este utilizador (credenciais inválidas no servidor).";
     }
-    if (phase === "serviceBind") {
-      return "LDAP: bind da conta de serviço falhou (credenciais inválidas). Verifica MCP_HUB_LDAP_BIND_DN e MCP_HUB_LDAP_BIND_PASSWORD.";
+    if (isServiceBindPhase(phase)) {
+      return [
+        "LDAP (conta de serviço no .env): credenciais inválidas para MCP_HUB_LDAP_BIND_DN / MCP_HUB_LDAP_BIND_PASSWORD.",
+        "Isto ocorre antes do login do painel — não são o utilizador nem a palavra-passe que escreves no formulário.",
+        "No Active Directory, data 52e costuma indicar palavra-passe errada ou conta de serviço restrita.",
+        "Se queres validar só com utilizador e palavra-passe do domínio (ex.: login@eship.local), remove do ambiente MCP_HUB_LDAP_BIND_DN, MCP_HUB_LDAP_BIND_PASSWORD e MCP_HUB_LDAP_USER_SEARCH_BASE e define MCP_HUB_LDAP_URL + MCP_HUB_LDAP_BASE_DN (modo LDAP directo).",
+      ].join(" ");
     }
     return `LDAP (${phase}): credenciais inválidas — ${err.message || "sem detalhe"}`;
   }
   if (isLdapResultCodeError(err)) {
     const msg = err.message || "(sem mensagem)";
+    if (isServiceBindPhase(phase)) {
+      return [
+        `LDAP (conta de serviço no .env): código ${err.code} — ${msg}`,
+        "Este passo usa MCP_HUB_LDAP_BIND_DN e MCP_HUB_LDAP_BIND_PASSWORD, não o utilizador do formulário.",
+        "Para login directo ao AD sem conta de serviço, remove BIND_DN, BIND_PASSWORD e USER_SEARCH_BASE e usa MCP_HUB_LDAP_BASE_DN (ver documentação modo B1).",
+      ].join(" ");
+    }
     return `LDAP (${phase}): código ${err.code} — ${msg}`;
   }
   if (err instanceof Error) {
@@ -229,7 +245,7 @@ export async function verifyLdapUserPassword(
     await safeUnbind(service);
     return {
       ok: false,
-      error: describeLdapOrNetworkError(err, "bindServico"),
+      error: describeLdapOrNetworkError(err, "serviceBind"),
       statusCode: 503,
     };
   }

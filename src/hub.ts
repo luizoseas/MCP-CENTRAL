@@ -977,10 +977,8 @@ function buildHubLdapOptions(): HubLdapOptions | null {
     process.env.MCP_HUB_LDAP_TLS_INSECURE?.trim() === "1";
   const conn = { url, connectTimeoutMs, tlsRejectUnauthorized };
 
-  if (bindDn || bindPassword) {
-    if (!bindDn || !bindPassword || !userSearchBase) {
-      return null;
-    }
+  /** Só modo serviço se a tríade estiver completa; variáveis órfãs não bloqueiam o modo directo. */
+  if (bindDn && bindPassword && userSearchBase) {
     const userFilter =
       process.env.MCP_HUB_LDAP_USER_FILTER?.trim() ||
       "(&(objectCategory=person)(sAMAccountName={{username}}))";
