@@ -1,0 +1,7 @@
+{
+  "mcpServers": {
+    "eship-hub-http": {
+      "url": "https://SEU_DOMINIO_OU_IP:3343/mcp"
+    }
+  }
+}

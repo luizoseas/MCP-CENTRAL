@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "eship-hub": {
+      "command": "node",
+      "args": [
+        "SUBSTITUIR_PELO_CAMINHO_ABSOLUTO\\MCP-CENTRAL\\dist\\hub.js"
+      ],
+      "env": {
+        "MCP_HUB_CONFIG": "SUBSTITUIR_PELO_CAMINHO_ABSOLUTO\\MCP-CENTRAL\\mcp-hub.config.json",
+        "ESHIP_API_KEY": "defina_a_chave_aqui_ou_use_secrets_do_Cursor",
+        "ESHIP_API_BASE_URL": "https://fulle.eship.com.br/v3"
+      }
+    }
+  }
+}

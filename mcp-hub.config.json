@@ -1,0 +1,175 @@
+{
+  "mcpServers": {
+    "eship-wms-ordem": {
+      "streamableHttp": {
+        "url": "https://wms-ordem.mcp.eship.com.br/mcp",
+        "headers": {
+          "X-Eship-Api-Key": "${ESHIP_API_KEY}",
+          "X-Eship-Api-Base-Url": "${ESHIP_API_BASE_URL}"
+        }
+      }
+    },
+    "eship-wms-operacao": {
+      "streamableHttp": {
+        "url": "https://wms-operacao.mcp.eship.com.br/mcp",
+        "headers": {
+          "X-Eship-Api-Key": "${ESHIP_API_KEY}",
+          "X-Eship-Api-Base-Url": "${ESHIP_API_BASE_URL}"
+        }
+      }
+    },
+    "eship-wms-usuario": {
+      "streamableHttp": {
+        "url": "https://wms-usuario.mcp.eship.com.br/mcp",
+        "headers": {
+          "X-Eship-Api-Key": "${ESHIP_API_KEY}",
+          "X-Eship-Api-Base-Url": "${ESHIP_API_BASE_URL}"
+        }
+      }
+    },
+    "eship-wms-sistema": {
+      "streamableHttp": {
+        "url": "https://wms-sistema.mcp.eship.com.br/mcp",
+        "headers": {
+          "X-Eship-Api-Key": "${ESHIP_API_KEY}",
+          "X-Eship-Api-Base-Url": "${ESHIP_API_BASE_URL}"
+        }
+      }
+    },
+    "eship-wms-cadastro": {
+      "streamableHttp": {
+        "url": "https://wms-cadastro.mcp.eship.com.br/mcp",
+        "headers": {
+          "X-Eship-Api-Key": "${ESHIP_API_KEY}",
+          "X-Eship-Api-Base-Url": "${ESHIP_API_BASE_URL}"
+        }
+      }
+    },
+    "eship-wms-armazem": {
+      "streamableHttp": {
+        "url": "https://wms-armazem.mcp.eship.com.br/mcp",
+        "headers": {
+          "X-Eship-Api-Key": "${ESHIP_API_KEY}",
+          "X-Eship-Api-Base-Url": "${ESHIP_API_BASE_URL}"
+        }
+      }
+    },
+    "eship-wms-inventario": {
+      "streamableHttp": {
+        "url": "https://wms-inventario.mcp.eship.com.br/mcp",
+        "headers": {
+          "X-Eship-Api-Key": "${ESHIP_API_KEY}",
+          "X-Eship-Api-Base-Url": "${ESHIP_API_BASE_URL}"
+        }
+      }
+    },
+    "eship-wms-recebimento": {
+      "streamableHttp": {
+        "url": "https://wms-recebimento.mcp.eship.com.br/mcp",
+        "headers": {
+          "X-Eship-Api-Key": "${ESHIP_API_KEY}",
+          "X-Eship-Api-Base-Url": "${ESHIP_API_BASE_URL}"
+        }
+      }
+    },
+    "eship-wms-requisicao": {
+      "streamableHttp": {
+        "url": "https://wms-requisicao.mcp.eship.com.br/mcp",
+        "headers": {
+          "X-Eship-Api-Key": "${ESHIP_API_KEY}",
+          "X-Eship-Api-Base-Url": "${ESHIP_API_BASE_URL}"
+        }
+      }
+    },
+    "eship-wms-produto": {
+      "streamableHttp": {
+        "url": "https://wms-produto.mcp.eship.com.br/mcp",
+        "headers": {
+          "X-Eship-Api-Key": "${ESHIP_API_KEY}",
+          "X-Eship-Api-Base-Url": "${ESHIP_API_BASE_URL}"
+        }
+      }
+    },
+    "eship-wms-precificacao": {
+      "streamableHttp": {
+        "url": "https://wms-precificacao.mcp.eship.com.br/mcp",
+        "headers": {
+          "X-Eship-Api-Key": "${ESHIP_API_KEY}",
+          "X-Eship-Api-Base-Url": "${ESHIP_API_BASE_URL}"
+        }
+      }
+    },
+    "eship-wms-transporte": {
+      "streamableHttp": {
+        "url": "https://wms-transporte.mcp.eship.com.br/mcp",
+        "headers": {
+          "X-Eship-Api-Key": "${ESHIP_API_KEY}",
+          "X-Eship-Api-Base-Url": "${ESHIP_API_BASE_URL}"
+        }
+      }
+    },
+    "eship-tar-cadastro": {
+      "streamableHttp": {
+        "url": "https://tar-cadastro.mcp.eship.com.br/mcp",
+        "headers": {
+          "X-Eship-Api-Key": "${ESHIP_API_KEY}",
+          "X-Eship-Api-Base-Url": "${ESHIP_API_BASE_URL}"
+        }
+      }
+    },
+    "eship-tar-formulario": {
+      "streamableHttp": {
+        "url": "https://tar-formulario.mcp.eship.com.br/mcp",
+        "headers": {
+          "X-Eship-Api-Key": "${ESHIP_API_KEY}",
+          "X-Eship-Api-Base-Url": "${ESHIP_API_BASE_URL}"
+        }
+      }
+    },
+    "eship-tar-integracao": {
+      "streamableHttp": {
+        "url": "https://tar-integracao.mcp.eship.com.br/mcp",
+        "headers": {
+          "X-Eship-Api-Key": "${ESHIP_API_KEY}",
+          "X-Eship-Api-Base-Url": "${ESHIP_API_BASE_URL}"
+        }
+      }
+    },
+    "eship-tar-sistema": {
+      "streamableHttp": {
+        "url": "https://tar-sistema.mcp.eship.com.br/mcp",
+        "headers": {
+          "X-Eship-Api-Key": "${ESHIP_API_KEY}",
+          "X-Eship-Api-Base-Url": "${ESHIP_API_BASE_URL}"
+        }
+      }
+    },
+    "eship-tar-sprint": {
+      "streamableHttp": {
+        "url": "https://tar-sprint.mcp.eship.com.br/mcp",
+        "headers": {
+          "X-Eship-Api-Key": "${ESHIP_API_KEY}",
+          "X-Eship-Api-Base-Url": "${ESHIP_API_BASE_URL}"
+        }
+      }
+    },
+    "eship-tar-treinamento": {
+      "streamableHttp": {
+        "url": "https://tar-treinamento.mcp.eship.com.br/mcp",
+        "headers": {
+          "X-Eship-Api-Key": "${ESHIP_API_KEY}",
+          "X-Eship-Api-Base-Url": "${ESHIP_API_BASE_URL}"
+        }
+      }
+    },
+    "eship-tar-usuario": {
+      "streamableHttp": {
+        "url": "https://tar-usuario.mcp.eship.com.br/mcp",
+        "headers": {
+          "X-Eship-Api-Key": "${ESHIP_API_KEY}",
+          "X-Eship-Api-Base-Url": "${ESHIP_API_BASE_URL}"
+        }
+      }
+    }
+  }
+}

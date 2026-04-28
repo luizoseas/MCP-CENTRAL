@@ -1,0 +1,491 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>MCP Hub — Utilizadores</title>
+  <style>
+    :root {
+      --bg: #0f1419;
+      --card: #1a2332;
+      --text: #e7ecf3;
+      --muted: #8b9cb3;
+      --accent: #3d8bfd;
+      --danger: #f87171;
+      --ok: #4ade80;
+      --border: #2d3a4d;
+    }
+    * { box-sizing: border-box; }
+    body {
+      font-family: ui-sans-serif, system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      margin: 0;
+      line-height: 1.5;
+      min-height: 100vh;
+    }
+    header {
+      padding: 1.25rem 1.5rem;
+      border-bottom: 1px solid var(--border);
+      background: var(--card);
+    }
+    h1 { font-size: 1.25rem; margin: 0 0 0.25rem; font-weight: 600; }
+    .sub { color: var(--muted); font-size: 0.875rem; }
+    main { max-width: 960px; margin: 0 auto; padding: 1.5rem; }
+    section {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 1.25rem;
+      margin-bottom: 1.25rem;
+    }
+    h2 { font-size: 1rem; margin: 0 0 1rem; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
+    label { display: block; font-size: 0.8rem; color: var(--muted); margin-bottom: 0.35rem; }
+    input, textarea, select, button {
+      font: inherit;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: var(--bg);
+      color: var(--text);
+      padding: 0.5rem 0.65rem;
+      width: 100%;
+    }
+    textarea { min-height: 120px; font-family: ui-monospace, monospace; font-size: 0.8rem; }
+    button {
+      cursor: pointer;
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #fff;
+      width: auto;
+      padding: 0.5rem 1rem;
+      margin-top: 0.75rem;
+    }
+    button.secondary { background: transparent; color: var(--text); border-color: var(--border); }
+    button.danger { background: var(--danger); border-color: var(--danger); }
+    .row { display: grid; gap: 1rem; margin-bottom: 1rem; }
+    @media (min-width: 560px) {
+      .row.cols-2 { grid-template-columns: 1fr 1fr; }
+    }
+    .login-panel { max-width: 400px; }
+    .hidden { display: none !important; }
+    .token-box {
+      background: #0a1628;
+      padding: 0.75rem;
+      border-radius: 6px;
+      word-break: break-all;
+      font-size: 0.8rem;
+      margin-top: 0.5rem;
+      border: 1px solid var(--accent);
+    }
+    ul.users { list-style: none; padding: 0; margin: 0; }
+    li.user {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1rem;
+      margin-bottom: 0.75rem;
+    }
+    li.user h3 { margin: 0 0 0.5rem; font-size: 1rem; }
+    .links { margin-top: 0.75rem; padding-left: 0; list-style: none; }
+    .links li {
+      font-size: 0.85rem;
+      padding: 0.5rem;
+      background: var(--bg);
+      border-radius: 6px;
+      margin-bottom: 0.35rem;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      align-items: center;
+    }
+    .err { color: var(--danger); font-size: 0.875rem; margin-top: 0.5rem; }
+    .ok { color: var(--ok); font-size: 0.875rem; margin-top: 0.5rem; }
+    code { font-size: 0.8em; color: #93c5fd; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>MCP Hub — Administração</h1>
+    <p class="sub">Utilizadores, vínculos, e registo NoSQL (<code>mcp_servers</code>) para MCPs adicionais que se fundem com <code>mcp-hub.config.json</code>.</p>
+  </header>
+  <main>
+    <section id="loginSection" class="login-panel">
+      <h2>Sessão admin</h2>
+      <label for="adminPw">Palavra-passe (<code>MCP_HUB_ADMIN_PASSWORD</code>)</label>
+      <input type="password" id="adminPw" autocomplete="current-password" />
+      <button type="button" id="btnLogin">Entrar</button>
+      <p id="loginErr" class="err hidden"></p>
+    </section>
+
+    <section id="appSection" class="hidden">
+      <div class="row cols-2" style="align-items: end;">
+        <div>
+          <h2 style="margin:0;">Painel</h2>
+          <p class="sub" style="margin:0.25rem 0 0;">Utilizadores: <code id="dataPath"></code></p>
+          <p class="sub" style="margin:0;">Coleção <code>mcp_servers</code>: <code id="registryPath"></code></p>
+        </div>
+        <div style="text-align: right;">
+          <button type="button" class="secondary" id="btnLogout">Sair</button>
+        </div>
+      </div>
+
+      <section>
+        <h2>Novo utilizador</h2>
+        <label for="newLabel">Nome / etiqueta</label>
+        <input type="text" id="newLabel" placeholder="Equipa A" />
+        <button type="button" id="btnCreateUser">Criar e gerar token</button>
+        <p id="createErr" class="err hidden"></p>
+        <div id="newTokenWrap" class="hidden">
+          <p class="ok">Guarda este token — não volta a ser mostrado. Envia-o no cabeçalho <code>X-MCP-Hub-User-Token</code> no <strong>initialize</strong> HTTP do hub.</p>
+          <div class="token-box" id="newToken"></div>
+        </div>
+      </section>
+
+      <section>
+        <h2>Registo MCP (NoSQL em disco)</h2>
+        <p class="sub" style="margin-top:0;">Novos documentos sobrepõem entradas com a mesma <code>key</code> no ficheiro JSON estático. Chave: letras, números, <code>_</code>, <code>-</code>, <code>.</code>.</p>
+        <div class="row cols-2">
+          <div>
+            <label for="newMcpKey">Chave única (ex. meu-wms-extra)</label>
+            <input type="text" id="newMcpKey" placeholder="meu-servico-mcp" />
+          </div>
+          <div>
+            <label for="newMcpLabel">Etiqueta</label>
+            <input type="text" id="newMcpLabel" placeholder="Serviço interno" />
+          </div>
+        </div>
+        <label for="newMcpDef">Definição MCP (stdio ou streamableHttp)</label>
+        <textarea id="newMcpDef">{
+  "streamableHttp": {
+    "url": "https://exemplo.mcp.eship.com.br/mcp",
+    "headers": {
+      "X-Eship-Api-Key": "${ESHIP_API_KEY}",
+      "X-Eship-Api-Base-Url": "https://fulle.eship.com.br/v3"
+    }
+  }
+}</textarea>
+        <button type="button" id="btnCreateMcp">Guardar no registo</button>
+        <button type="button" class="secondary" id="btnRefreshRegistry" style="margin-left:0.5rem;">Recarregar tabela</button>
+        <p id="registryErr" class="err hidden"></p>
+        <ul class="users" id="registryList" style="margin-top:1rem;"></ul>
+      </section>
+
+      <section>
+        <h2>Utilizadores e vínculos</h2>
+        <button type="button" class="secondary" id="btnRefresh">Recarregar lista</button>
+        <ul class="users" id="userList"></ul>
+        <p id="listErr" class="err hidden"></p>
+      </section>
+    </section>
+  </main>
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const api = (path, opts = {}) =>
+      fetch("/hub-admin/api" + path, {
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json", ...(opts.headers || {}) },
+        ...opts,
+      }).then(async (r) => {
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(j.error || r.statusText);
+        return j;
+      });
+
+    async function checkMe() {
+      try {
+        const j = await api("/me");
+        if (j.admin) {
+          $("loginSection").classList.add("hidden");
+          $("appSection").classList.remove("hidden");
+          loadConfig();
+          loadUsers();
+          loadMcpRegistry();
+        }
+      } catch { /* not logged */ }
+    }
+
+    async function loadConfig() {
+      try {
+        const j = await api("/config");
+        $("dataPath").textContent = j.usersFile || "";
+        $("registryPath").textContent = j.mcpRegistryFile || "";
+      } catch {
+        $("dataPath").textContent = "?";
+        $("registryPath").textContent = "?";
+      }
+    }
+
+    async function loadMcpRegistry() {
+      $("registryErr").classList.add("hidden");
+      try {
+        const { documents } = await api("/mcp-registry");
+        $("registryList").innerHTML = (documents || [])
+          .map(
+            (d) => `
+          <li class="user" data-doc-id="${esc(d._id)}">
+            <h3><code>${esc(d.key)}</code> — ${esc(d.label || "")}</h3>
+            <p class="sub" style="margin:0;">_id: ${esc(d._id)} · actualizado: ${esc(d.updatedAt || "")}</p>
+            <button type="button" class="secondary btn-edit-doc">Editar def JSON</button>
+            <button type="button" class="danger btn-del-doc">Apagar do registo</button>
+          </li>`,
+          )
+          .join("");
+        $("registryList").querySelectorAll("[data-doc-id]").forEach((row) => {
+          const id = row.getAttribute("data-doc-id");
+          row.querySelector(".btn-del-doc").onclick = async () => {
+            if (!confirm("Remover este MCP do registo NoSQL? (volta a valer a entrada do ficheiro estático se existir.)")) return;
+            try {
+              await api(`/mcp-registry/${id}`, { method: "DELETE" });
+              loadMcpRegistry();
+              loadUsers();
+            } catch (e) {
+              alert(e.message);
+            }
+          };
+          row.querySelector(".btn-edit-doc").onclick = async () => {
+            const doc = (documents || []).find((x) => x._id === id);
+            if (!doc) return;
+            const raw = prompt(
+              "JSON completo da definição (streamableHttp ou command/args):",
+              JSON.stringify(doc.def, null, 2),
+            );
+            if (raw == null) return;
+            let def;
+            try {
+              def = JSON.parse(raw);
+            } catch {
+              alert("JSON inválido.");
+              return;
+            }
+            try {
+              await api(`/mcp-registry/${id}`, {
+                method: "PUT",
+                body: JSON.stringify({ def }),
+              });
+              loadMcpRegistry();
+              loadUsers();
+            } catch (e) {
+              alert(e.message);
+            }
+          };
+        });
+      } catch (e) {
+        $("registryErr").textContent = e.message;
+        $("registryErr").classList.remove("hidden");
+      }
+    }
+
+    function esc(s) {
+      const d = document.createElement("div");
+      d.textContent = s;
+      return d.innerHTML;
+    }
+
+    async function loadUsers() {
+      $("listErr").classList.add("hidden");
+      try {
+        const { users } = await api("/users");
+        const { servers } = await api("/servers");
+        const serverOpts =
+          (servers || []).length > 0
+            ? (servers || []).map((s) => `<option value="${esc(s)}">${esc(s)}</option>`).join("")
+            : '<option value="">(sem MCPs — ficheiro + registo vazios)</option>';
+        $("userList").innerHTML = users
+          .map(
+            (u) => `
+          <li class="user" data-user="${esc(u.id)}">
+            <h3>${esc(u.label)} <span class="sub" style="font-weight:normal;">(${esc(u.id)})</span></h3>
+            <div class="row cols-2">
+              <div>
+                <label>Novo vínculo — MCP</label>
+                <select class="sel-server">${serverOpts}</select>
+              </div>
+              <div>
+                <label>JSON de ligação <span class="sub">(headers, url, env)</span></label>
+                <textarea class="conn-json">${esc(JSON.stringify({ headers: {}, env: {} }, null, 2))}</textarea>
+              </div>
+            </div>
+            <button type="button" class="btn-add-link">Adicionar vínculo</button>
+            <button type="button" class="danger btn-del-user" style="margin-left:0.5rem;">Apagar utilizador</button>
+            <ul class="links">${(u.links || [])
+              .map(
+                (l) => `
+              <li data-link="${esc(l.id)}" data-connection="${encodeURIComponent(JSON.stringify(l.connection ?? {}))}">
+                <strong>${esc(l.serverKey)}</strong>
+                <button type="button" class="secondary btn-edit">Editar JSON</button>
+                <button type="button" class="danger btn-del-link">Remover</button>
+              </li>`,
+              )
+              .join("")}</ul>
+          </li>`,
+          )
+          .join("");
+
+        $("userList").querySelectorAll(".user").forEach((card) => {
+          const userId = card.getAttribute("data-user");
+          card.querySelector(".btn-add-link").onclick = async () => {
+            const sel = card.querySelector(".sel-server");
+            const ta = card.querySelector(".conn-json");
+            let connection = {};
+            try {
+              connection = JSON.parse(ta.value || "{}");
+            } catch {
+              alert("JSON inválido no vínculo.");
+              return;
+            }
+            try {
+              await api(`/users/${userId}/links`, {
+                method: "POST",
+                body: JSON.stringify({
+                  serverKey: sel.value,
+                  connection,
+                }),
+              });
+              loadUsers();
+            } catch (e) {
+              alert(e.message);
+            }
+          };
+          card.querySelector(".btn-del-user").onclick = async () => {
+            if (!confirm("Apagar utilizador e todos os vínculos?")) return;
+            try {
+              await api(`/users/${userId}`, { method: "DELETE" });
+              loadUsers();
+            } catch (e) {
+              alert(e.message);
+            }
+          };
+          card.querySelectorAll(".btn-del-link").forEach((btn) => {
+            btn.onclick = async () => {
+              const li = btn.closest("li");
+              const linkId = li.getAttribute("data-link");
+              if (!confirm("Remover este vínculo?")) return;
+              try {
+                await api(`/links/${linkId}`, { method: "DELETE" });
+                loadUsers();
+              } catch (e) {
+                alert(e.message);
+              }
+            };
+          });
+          card.querySelectorAll(".btn-edit").forEach((btn) => {
+            btn.onclick = async () => {
+              const li = btn.closest("li");
+              const linkId = li.getAttribute("data-link");
+              let current = {};
+              try {
+                current = JSON.parse(
+                  decodeURIComponent(li.getAttribute("data-connection") || "%7B%7D"),
+                );
+              } catch {
+                current = {};
+              }
+              const raw = prompt(
+                "JSON connection (headers, url, env):",
+                JSON.stringify(current, null, 2),
+              );
+              if (raw == null) return;
+              let connection = {};
+              try {
+                connection = JSON.parse(raw);
+              } catch {
+                alert("JSON inválido.");
+                return;
+              }
+              try {
+                await api(`/links/${linkId}`, {
+                  method: "PUT",
+                  body: JSON.stringify({ connection }),
+                });
+                loadUsers();
+              } catch (e) {
+                alert(e.message);
+              }
+            };
+          });
+        });
+      } catch (e) {
+        $("listErr").textContent = e.message;
+        $("listErr").classList.remove("hidden");
+      }
+    }
+
+    $("btnLogin").onclick = async () => {
+      $("loginErr").classList.add("hidden");
+      try {
+        await api("/login", {
+          method: "POST",
+          body: JSON.stringify({ password: $("adminPw").value }),
+        });
+        $("loginSection").classList.add("hidden");
+        $("appSection").classList.remove("hidden");
+        loadConfig();
+        loadUsers();
+        loadMcpRegistry();
+      } catch (e) {
+        $("loginErr").textContent = e.message;
+        $("loginErr").classList.remove("hidden");
+      }
+    };
+
+    $("btnLogout").onclick = async () => {
+      await api("/logout", { method: "POST" });
+      $("appSection").classList.add("hidden");
+      $("loginSection").classList.remove("hidden");
+      $("newTokenWrap").classList.add("hidden");
+    };
+
+    $("btnCreateUser").onclick = async () => {
+      $("createErr").classList.add("hidden");
+      $("newTokenWrap").classList.add("hidden");
+      try {
+        const j = await api("/users", {
+          method: "POST",
+          body: JSON.stringify({ label: $("newLabel").value }),
+        });
+        $("newToken").textContent = j.apiToken;
+        $("newTokenWrap").classList.remove("hidden");
+        loadUsers();
+      } catch (e) {
+        $("createErr").textContent = e.message;
+        $("createErr").classList.remove("hidden");
+      }
+    };
+
+    $("btnRefresh").onclick = () => {
+      loadUsers();
+      loadMcpRegistry();
+    };
+
+    $("btnRefreshRegistry").onclick = () => loadMcpRegistry();
+
+    $("btnCreateMcp").onclick = async () => {
+      $("registryErr").classList.add("hidden");
+      let def;
+      try {
+        def = JSON.parse($("newMcpDef").value || "{}");
+      } catch {
+        $("registryErr").textContent = "JSON da definição inválido.";
+        $("registryErr").classList.remove("hidden");
+        return;
+      }
+      try {
+        await api("/mcp-registry", {
+          method: "POST",
+          body: JSON.stringify({
+            key: $("newMcpKey").value,
+            label: $("newMcpLabel").value,
+            def,
+          }),
+        });
+        loadMcpRegistry();
+        loadUsers();
+      } catch (e) {
+        $("registryErr").textContent = e.message;
+        $("registryErr").classList.remove("hidden");
+      }
+    };
+
+    checkMe();
+  </script>
+</body>
+</html>

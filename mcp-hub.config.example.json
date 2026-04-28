@@ -1,0 +1,21 @@
+{
+  "mcpServers": {
+    "everything": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-everything"]
+    },
+    "exemplo-com-env": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "mcp-remote",
+        "https://exemplo.com/mcp",
+        "--header",
+        "X-Api-Key:${MINHA_API_KEY}"
+      ],
+      "env": {
+        "OUTRO": "${OUTRO_VAR}"
+      }
+    }
+  }
+}

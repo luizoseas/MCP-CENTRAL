@@ -1,0 +1,33 @@
+# Hub MCP em HTTP na porta 3343, escuta em 0.0.0.0 (qualquer IP no host).
+# env_file: .env opcional (Compose 2.24+). ESHIP_* não são obrigatórios no .env:
+# podes passá-las por secrets / -e, ou omitir se não usares placeholders no JSON.
+# Para stdio: MCP_HUB_TRANSPORT=stdio e use docker compose run --rm -T mcp-hub
+# UI admin: http://localhost:3343/hub-admin (definir MCP_HUB_ADMIN_PASSWORD no .env)
+volumes:
+  hub-users-data:
+services:
+  mcp-hub:
+    build: .
+    image: mcp-central:latest
+    ports:
+      - "0.0.0.0:${MCP_PUBLIC_PORT:-3343}:${MCP_HUB_HTTP_PORT:-3343}"
+    volumes:
+      - hub-users-data:/app/data
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      MCP_HUB_CONFIG: /app/mcp-hub.config.json
+      MCP_HUB_TRANSPORT: http
+      MCP_HUB_HTTP_HOST: 0.0.0.0
+      MCP_HUB_HTTP_PORT: "${MCP_HUB_HTTP_PORT:-3343}"
+      MCP_HUB_HTTP_PATH: /mcp
+      MCP_HUB_ALLOWED_HOSTS: ${MCP_HUB_ALLOWED_HOSTS:-}
+      MCP_HUB_TRUST_PROXY: ${MCP_HUB_TRUST_PROXY:-}
+      MCP_HUB_OAUTH_PUBLIC_ORIGIN: ${MCP_HUB_OAUTH_PUBLIC_ORIGIN:-}
+      MCP_HUB_OAUTH_RESOURCE_URL: ${MCP_HUB_OAUTH_RESOURCE_URL:-}
+      MCP_HUB_OAUTH_COERCE_HTTPS: ${MCP_HUB_OAUTH_COERCE_HTTPS:-}
+      MCP_HUB_ADMIN_PASSWORD: ${MCP_HUB_ADMIN_PASSWORD:-}
+      MCP_HUB_ADMIN_SECRET: ${MCP_HUB_ADMIN_SECRET:-}
+      MCP_HUB_USERS_FILE: /app/data/hub-users.json
+      MCP_HUB_MCP_REGISTRY_FILE: /app/data/hub-mcp-registry.json
