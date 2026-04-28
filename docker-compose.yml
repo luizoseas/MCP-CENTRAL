@@ -1,4 +1,5 @@
 # Hub MCP em HTTP na porta 3343, escuta em 0.0.0.0 (qualquer IP no host).
+# O entrypoint da imagem faz chown de /app/data para `node` (evita EACCES em volumes Docker).
 # env_file: .env opcional (Compose 2.24+). ESHIP_* não são obrigatórios no .env:
 # podes passá-las por secrets / -e, ou omitir se não usares placeholders no JSON.
 # Para stdio: MCP_HUB_TRANSPORT=stdio e use docker compose run --rm -T mcp-hub
