@@ -526,6 +526,69 @@
       color: var(--accent);
       font-size: 0.85rem;
     }
+
+    .back-row {
+      margin: 0 0 1rem;
+      font-size: 0.9rem;
+    }
+    .back-row a {
+      color: var(--accent);
+      font-weight: 600;
+      text-decoration: none;
+    }
+    .back-row a:hover { text-decoration: underline; }
+
+    .guide-steps {
+      margin: 0;
+      padding-left: 1.35rem;
+      max-width: 72ch;
+    }
+    .guide-steps > li {
+      margin-bottom: 1.1rem;
+      color: var(--text-secondary);
+    }
+    .guide-steps > li strong {
+      color: var(--text);
+    }
+    .pre-block {
+      margin: 0.65rem 0 0;
+      padding: 0.85rem 1rem;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      overflow-x: auto;
+      font-family: var(--font-mono);
+      font-size: 0.78rem;
+      line-height: 1.5;
+      white-space: pre-wrap;
+      word-break: break-word;
+      color: var(--code);
+    }
+    .guide-note {
+      margin-top: 1.25rem;
+      padding: 0.85rem 1rem;
+      border-radius: var(--radius-sm);
+      background: var(--accent-muted);
+      border: 1px solid var(--border);
+      font-size: 0.875rem;
+      color: var(--text-secondary);
+    }
+    a.btn-link {
+      display: inline-flex;
+      align-items: center;
+      padding: 0.4rem 0.75rem;
+      border-radius: 6px;
+      text-decoration: none;
+      border: 1px solid var(--border-strong);
+      font-size: 0.8125rem;
+      font-weight: 600;
+      color: var(--text);
+      background: transparent;
+    }
+    a.btn-link:hover {
+      border-color: var(--accent);
+      color: var(--accent);
+    }
   </style>
 </head>
 <body>
@@ -563,6 +626,7 @@
             <a href="#/catalogo">Catálogo MCP</a>
             <a href="#/api-keys">API keys</a>
             <a href="#/mcps">MCPs por API key</a>
+            <a href="#/clientes">Ligar Cursor / Claude</a>
           </nav>
         </aside>
         <div class="main-col" id="appMain" tabindex="-1">

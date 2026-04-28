@@ -1,6 +1,7 @@
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { randomBytes, randomUUID } from "node:crypto";
+import { persistJsonFile } from "./persistJsonFile.js";
 import type {
   ApiTokenRecord,
   HubConnectionOverrides,
@@ -106,11 +107,7 @@ export class HubUserStore {
   }
 
   private async persist(): Promise<void> {
-    await mkdir(dirname(this.filePath), { recursive: true });
-    const tmp = `${this.filePath}.${randomBytes(8).toString("hex")}.tmp`;
-    const json = `${JSON.stringify(this.data, null, 2)}\n`;
-    await writeFile(tmp, json, "utf8");
-    await rename(tmp, this.filePath);
+    await persistJsonFile(this.filePath, this.data);
   }
 
   async load(): Promise<void> {

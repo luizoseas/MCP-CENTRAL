@@ -980,6 +980,7 @@ async function serveHttp() {
       getMergedServerKeys: async () =>
         Object.keys((await loadMergedHubConfig()).mcpServers).sort(),
       parseServerDef: (v: unknown) => HubServerDefSchema.parse(v),
+      mcpHttpPath: basePath,
     }),
   );
   const adminHost = httpHost === "0.0.0.0" ? "127.0.0.1" : httpHost;

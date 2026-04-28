@@ -52,6 +52,8 @@ export function createHubAdminRouter(opts: {
   sessionSecret: string;
   getMergedServerKeys: () => Promise<string[]>;
   parseServerDef: (v: unknown) => unknown;
+  /** Caminho HTTP do endpoint MCP (ex. /mcp), sem host — para instruções no painel. */
+  mcpHttpPath: string;
 }): Router {
   const r = express.Router();
   const {
@@ -62,6 +64,7 @@ export function createHubAdminRouter(opts: {
     sessionSecret,
     getMergedServerKeys,
     parseServerDef,
+    mcpHttpPath,
   } = opts;
 
   const adminNotReady = (_req: Request, res: Response) => {
@@ -140,10 +143,15 @@ export function createHubAdminRouter(opts: {
   });
 
   r.post("/api/users", requireAdmin, async (req: Request, res: Response) => {
-    const body = parseJsonBody(req) as { label?: string };
-    await store.load();
-    const { user } = await store.createUser(String(body.label ?? ""));
-    res.status(201).json({ user });
+    try {
+      const body = parseJsonBody(req) as { label?: string };
+      await store.load();
+      const { user } = await store.createUser(String(body.label ?? ""));
+      res.status(201).json({ user });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      res.status(500).json({ error: msg });
+    }
   });
 
   r.delete("/api/users/:id", requireAdmin, async (req: Request, res: Response) => {
@@ -511,6 +519,7 @@ export function createHubAdminRouter(opts: {
     res.json({
       usersFile: store.getDataPath(),
       mcpRegistryFile: registry.getFilePath(),
+      mcpHttpPath,
       nosql: "Coleção mcp_servers em JSON (substituível por MongoDB).",
       hint:
         "Cliente MCP: X-MCP-Hub-User-Token = secret de API token. Templates admin (mcp_templates): utilizador preenche connection.headers sobre a definição base.",

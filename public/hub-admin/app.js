@@ -4,6 +4,13 @@ const $ = (id) => document.getElementById(id);
 /** Secret mostrado uma vez após criar token (evita perder o banner com re-render). */
 let pendingNewKeySecret = null;
 
+/** Última resposta de GET /api/config (caminho MCP, ficheiros, …). */
+let hubConfig = {
+  usersFile: "",
+  mcpRegistryFile: "",
+  mcpHttpPath: "/mcp",
+};
+
 function esc(s) {
   const d = document.createElement("div");
   d.textContent = s == null ? "" : String(s);
@@ -27,27 +34,59 @@ function parseRoute() {
   if (!h.startsWith("/")) h = "/" + h;
   const parts = h.split("/").filter(Boolean);
   const name = parts[0] || "inicio";
-  if (name === "mcps" && parts[1]) return { name: "mcps", tokenId: parts[1] };
-  return { name, tokenId: null };
+  const empty = { tokenId: null, mcpId: null, userId: null, templateId: null, docId: null };
+
+  if (name === "mcps" && parts[1]) {
+    if (parts[2] === "edit" && parts[3]) {
+      return { name: "mcp-edit", tokenId: parts[1], mcpId: parts[3], ...empty };
+    }
+    return { name: "mcps", tokenId: parts[1], ...empty };
+  }
+  if (name === "utilizadores" && parts[1] === "edit" && parts[2]) {
+    return { name: "user-edit", userId: parts[2], ...empty };
+  }
+  if (name === "templates" && parts[1] === "edit" && parts[2]) {
+    return { name: "template-edit", templateId: parts[2], ...empty };
+  }
+  if (name === "catalogo" && parts[1] === "edit" && parts[2]) {
+    return { name: "catalog-edit", docId: parts[2], ...empty };
+  }
+
+  return { name, ...empty };
 }
 
 function navMark() {
   const cur = location.hash || "#/inicio";
   document.querySelectorAll("#sidebarNav a").forEach((a) => {
     const href = a.getAttribute("href") || "";
-    a.setAttribute("aria-current", href === cur ? "page" : "false");
+    let active = href === cur;
+    if (!active && href !== "#/inicio" && cur.startsWith(`${href}/`)) {
+      active = true;
+    }
+    if (!active && href === "#/mcps" && (cur.startsWith("#/mcps/") || cur === "#/mcps")) {
+      active = true;
+    }
+    a.setAttribute("aria-current", active ? "page" : "false");
   });
 }
 
 async function loadConfig() {
   try {
     const j = await api("/config");
-    $("dataPath").textContent = j.usersFile || "";
-    $("registryPath").textContent = j.mcpRegistryFile || "";
+    hubConfig.usersFile = j.usersFile || "";
+    hubConfig.mcpRegistryFile = j.mcpRegistryFile || "";
+    hubConfig.mcpHttpPath = typeof j.mcpHttpPath === "string" && j.mcpHttpPath ? j.mcpHttpPath : "/mcp";
+    $("dataPath").textContent = hubConfig.usersFile;
+    $("registryPath").textContent = hubConfig.mcpRegistryFile;
   } catch {
     $("dataPath").textContent = "?";
     $("registryPath").textContent = "?";
   }
+}
+
+function mcpEndpointUrl() {
+  const path = hubConfig.mcpHttpPath.startsWith("/") ? hubConfig.mcpHttpPath : `/${hubConfig.mcpHttpPath}`;
+  return `${window.location.origin}${path}`;
 }
 
 function showApp() {
@@ -59,33 +98,40 @@ function showApp() {
   }
 }
 
-function tplOptsHtml(tplList) {
+function tplOptsHtml(tplList, selectedId) {
   if (!tplList?.length) {
     return '<option value="">(sem templates — cria na página Templates)</option>';
   }
   return tplList
     .map(
       (x) =>
-        `<option value="${esc(x._id)}" data-hint="${esc((x.accessHeaderKeys || []).join(", "))}">${esc(x.label)} (${esc(x.key)})</option>`,
+        `<option value="${esc(x._id)}" data-hint="${esc((x.accessHeaderKeys || []).join(", "))}"${x._id === selectedId ? " selected" : ""}>${esc(x.label)} (${esc(x.key)})</option>`,
     )
     .join("");
 }
 
-function serverOptsHtml(servers) {
+function serverOptsHtml(servers, selectedKey) {
   if (!servers?.length) {
     return '<option value="">(sem chaves no catálogo)</option>';
   }
-  return servers.map((s) => `<option value="${esc(s)}">${esc(s)}</option>`).join("");
+  return servers
+    .map((s) => `<option value="${esc(s)}"${s === selectedKey ? " selected" : ""}>${esc(s)}</option>`)
+    .join("");
 }
 
-function wireMcpAddPanel(root, tokenId, servers, tplList) {
+/**
+ * Formulário “Adicionar MCP” (POST) ou “Editar MCP” (PUT).
+ * @param {object | null} edit — `{ mcpId }` para PUT; `null` para POST.
+ */
+function wireMcpFormPanel(root, tokenId, servers, tplList, edit) {
   const modeSel = root.querySelector(".mcp-mode");
   const directF = root.querySelector(".mcp-direct-fields");
   const catF = root.querySelector(".mcp-catalog-fields");
   const admF = root.querySelector(".mcp-admintpl-fields");
   const tplSel = root.querySelector(".mcp-admin-template-id");
   const tplHint = root.querySelector(".mcp-tpl-hint");
-  if (!modeSel || !directF || !catF || !admF || !tplSel || !tplHint) return;
+  const saveBtn = edit ? root.querySelector(".btn-save-mcp") : root.querySelector(".btn-add-mcp");
+  if (!modeSel || !directF || !catF || !admF || !tplSel || !tplHint || !saveBtn) return;
 
   const syncTplHint = () => {
     const opt = tplSel.selectedOptions[0];
@@ -109,7 +155,7 @@ function wireMcpAddPanel(root, tokenId, servers, tplList) {
   };
   syncMode();
 
-  root.querySelector(".btn-add-mcp")?.addEventListener("click", async () => {
+  saveBtn.addEventListener("click", async () => {
     let body = {};
     try {
       if (modeSel.value === "direct") {
@@ -148,15 +194,27 @@ function wireMcpAddPanel(root, tokenId, servers, tplList) {
       return;
     }
     try {
-      await api(`/tokens/${tokenId}/mcps`, {
-        method: "POST",
-        body: JSON.stringify(body),
-      });
-      await render();
+      if (edit) {
+        await api(`/tokens/${tokenId}/mcps/${edit.mcpId}`, {
+          method: "PUT",
+          body: JSON.stringify(body),
+        });
+        location.hash = `#/mcps/${tokenId}`;
+      } else {
+        await api(`/tokens/${tokenId}/mcps`, {
+          method: "POST",
+          body: JSON.stringify(body),
+        });
+        await render();
+      }
     } catch (e) {
       alert(e.message);
     }
   });
+}
+
+function wireMcpAddPanel(root, tokenId, servers, tplList) {
+  wireMcpFormPanel(root, tokenId, servers, tplList, null);
 }
 
 async function renderInicio(view) {
@@ -165,12 +223,81 @@ async function renderInicio(view) {
     <div class="panel">
       <p class="section-lead">Escolhe uma secção na barra lateral. Os ficheiros de dados aparecem acima.</p>
       <div class="quick-grid cols-2">
+        <a class="card-link" href="#/clientes"><strong>Ligar Cursor / Claude</strong>Passo a passo com URL do hub e cabeçalho do token.</a>
         <a class="card-link" href="#/utilizadores"><strong>Utilizadores</strong>Criar, editar etiqueta e apagar contas.</a>
         <a class="card-link" href="#/templates"><strong>Templates MCP</strong>Definições base e variáveis sugeridas.</a>
         <a class="card-link" href="#/catalogo"><strong>Catálogo MCP</strong>Entradas <code>mcp_servers</code> no registo JSON.</a>
         <a class="card-link" href="#/api-keys"><strong>API keys</strong>Criar e revogar tokens por utilizador.</a>
         <a class="card-link" href="#/mcps"><strong>MCPs por API key</strong>Ligar MCPs a um token e editar variáveis.</a>
       </div>
+    </div>`;
+}
+
+async function renderClientes(view) {
+  await loadConfig();
+  const endpoint = mcpEndpointUrl();
+  const cursorJson = {
+    mcpServers: {
+      "mcp-hub": {
+        url: endpoint,
+        headers: {
+          "X-MCP-Hub-User-Token": "COLA_AQUI_O_SECRET_DA_API_KEY",
+        },
+      },
+    },
+  };
+  const claudeJson = {
+    mcpServers: {
+      "mcp-hub": {
+        command: "npx",
+        args: [
+          "-y",
+          "mcp-remote",
+          endpoint,
+          "--header",
+          "X-MCP-Hub-User-Token:${HUB_USER_TOKEN}",
+        ],
+        env: {
+          HUB_USER_TOKEN: "COLA_AQUI_O_SECRET_DA_API_KEY",
+        },
+      },
+    },
+  };
+  view.innerHTML = `
+    <div class="panel">
+      <p class="back-row"><a href="#/inicio">← Início</a></p>
+      <h3 class="section-title">Antes de ligar o cliente</h3>
+      <ol class="guide-steps">
+        <li><strong>No painel:</strong> cria um <a href="#/utilizadores">utilizador</a>, uma <a href="#/api-keys">API key</a> e os <a href="#/mcps">MCPs</a> vinculados a essa key (catálogo, URL ou template).</li>
+        <li><strong>Copia o secret</strong> da API key quando a gerares — é o valor do cabeçalho <code>X-MCP-Hub-User-Token</code> (não confundir com a palavra-passe do admin do painel).</li>
+        <li><strong>URL do hub MCP</strong> neste servidor (origem desta página + caminho configurado):<br /><code class="pre-block" style="margin-top:0.5rem;">${esc(endpoint)}</code>
+          <span class="sub">Caminho HTTP vem de <code>MCP_HUB_HTTP_PATH</code> no processo do hub (resposta <code>/api/config</code> → <code>mcpHttpPath</code>).</span></li>
+      </ol>
+    </div>
+    <div class="panel">
+      <h3 class="section-title">Cursor</h3>
+      <ol class="guide-steps">
+        <li>Abre <strong>Cursor</strong> → <strong>Settings</strong> → <strong>MCP</strong> (ou edita o ficheiro de configuração MCP que o Cursor indicar na tua versão).</li>
+        <li>Adiciona um servidor <strong>HTTP / Streamable HTTP</strong> apontando para a URL acima.</li>
+        <li>Define o cabeçalho <code>X-MCP-Hub-User-Token</code> com o <strong>secret</strong> da API key.</li>
+        <li>Reinicia o MCP ou o Cursor se o cliente não listar ferramentas de imediato.</li>
+      </ol>
+      <p class="section-lead" style="margin-top:1rem;">Exemplo de JSON (ajusta o nome <code>mcp-hub</code> se quiseres):</p>
+      <pre class="pre-block" id="cursorCfgBlock">${esc(JSON.stringify(cursorJson, null, 2))}</pre>
+      <p class="guide-note">Em redes internas, substitui o host por o IP ou DNS que o Cursor consegue alcançar (o mesmo que usas para abrir este painel, na porta HTTP do hub).</p>
+    </div>
+    <div class="panel">
+      <h3 class="section-title">Claude Desktop</h3>
+      <ol class="guide-steps">
+        <li>Fecha o Claude Desktop antes de editar o ficheiro de configuração.</li>
+        <li>No <strong>macOS</strong>, abre <code>~/Library/Application Support/Claude/claude_desktop_config.json</code>. No <strong>Windows</strong>, o caminho costuma estar em <code>%APPDATA%\\Claude\\claude_desktop_config.json</code> (confirma na documentação Anthropic se mudar).</li>
+        <li>Em <code>mcpServers</code>, adiciona uma entrada que aponte para o hub. Duas formas comuns:</li>
+      </ol>
+      <p class="section-lead"><strong>A)</strong> Cliente HTTP nativo (se a tua build suportar URL + headers para MCP remoto):</p>
+      <pre class="pre-block">${esc(JSON.stringify(cursorJson, null, 2))}</pre>
+      <p class="section-lead" style="margin-top:1rem;"><strong>B)</strong> Via <code>mcp-remote</code> (útil quando o JSON do Claude só expõe <code>command</code>/<code>args</code>):</p>
+      <pre class="pre-block">${esc(JSON.stringify(claudeJson, null, 2))}</pre>
+      <p class="guide-note">O pacote <code>mcp-remote</code> (npm) faz de ponte stdio → HTTP. No Windows, o Claude por vezes partim cabeçalhos com espaços nos <code>args</code>; por isso o token vai em <code>env</code> e o <code>--header</code> usa <code>\${HUB_USER_TOKEN}</code> sem espaços à volta do <code>:</code>. Se a tua versão do Claude aceitar URL + headers directamente, prefere a opção A.</p>
     </div>`;
 }
 
@@ -205,7 +332,7 @@ async function renderUtilizadores(view) {
                 <td>${esc(u.createdAt || "")}</td>
                 <td>
                   <div class="btn-row" style="margin:0;">
-                    <button type="button" class="secondary btn-edit-u" data-id="${esc(u.id)}" data-label="${esc(u.label)}">Editar</button>
+                    <a class="btn-link secondary" href="#/utilizadores/edit/${esc(u.id)}">Editar</a>
                     <button type="button" class="danger btn-del-u" data-id="${esc(u.id)}">Apagar</button>
                   </div>
                 </td>
@@ -233,20 +360,6 @@ async function renderUtilizadores(view) {
     }
   });
 
-  view.querySelectorAll(".btn-edit-u").forEach((btn) => {
-    btn.addEventListener("click", async () => {
-      const id = btn.getAttribute("data-id");
-      const lab = prompt("Nova etiqueta:", btn.getAttribute("data-label") || "");
-      if (lab == null || !lab.trim()) return;
-      try {
-        await api(`/users/${id}`, { method: "PUT", body: JSON.stringify({ label: lab.trim() }) });
-        await render();
-      } catch (e) {
-        alert(e.message);
-      }
-    });
-  });
-
   view.querySelectorAll(".btn-del-u").forEach((btn) => {
     btn.addEventListener("click", async () => {
       const id = btn.getAttribute("data-id");
@@ -259,6 +372,44 @@ async function renderUtilizadores(view) {
       }
     });
   });
+}
+
+async function renderUserEdit(view, userId) {
+  const { users } = await api("/users");
+  const u = (users || []).find((x) => x.id === userId);
+  if (!u) {
+    view.innerHTML = `<p class="feedback feedback--err">Utilizador não encontrado.</p><p class="back-row"><a href="#/utilizadores">← Utilizadores</a></p>`;
+    return;
+  }
+  view.innerHTML = `
+    <div class="panel">
+      <p class="back-row"><a href="#/utilizadores">← Utilizadores</a></p>
+      <h3 class="section-title">Editar utilizador</h3>
+      <p class="sub">ID: <code>${esc(u.id)}</code></p>
+      <label for="editULabel">Etiqueta</label>
+      <input type="text" id="editULabel" value="${esc(u.label)}" autocomplete="organization" />
+      <div class="btn-row">
+        <button type="button" id="btnSaveUser">Guardar</button>
+        <a href="#/utilizadores" class="secondary" style="margin-top:0.75rem;display:inline-flex;align-items:center;padding:0.55rem 1.1rem;text-decoration:none;border-radius:6px;border:1px solid var(--border-strong);">Cancelar</a>
+      </div>
+      <p id="editUErr" class="feedback feedback--err hidden" role="alert"></p>
+    </div>`;
+  $("btnSaveUser").onclick = async () => {
+    $("editUErr").classList.add("hidden");
+    const lab = $("editULabel").value.trim();
+    if (!lab) {
+      $("editUErr").textContent = "A etiqueta não pode ficar vazia.";
+      $("editUErr").classList.remove("hidden");
+      return;
+    }
+    try {
+      await api(`/users/${userId}`, { method: "PUT", body: JSON.stringify({ label: lab }) });
+      location.hash = "#/utilizadores";
+    } catch (e) {
+      $("editUErr").textContent = e.message;
+      $("editUErr").classList.remove("hidden");
+    }
+  };
 }
 
 async function renderTemplates(view) {
@@ -304,7 +455,7 @@ async function renderTemplates(view) {
       <p class="sub" style="margin:0;">${esc(d.description || "")}</p>
       <p class="sub">Cabeçalhos: <code>${esc((d.accessHeaderKeys || []).join(", ") || "—")}</code></p>
       <div class="btn-row">
-        <button type="button" class="secondary btn-tpl-edit">Editar (JSON)</button>
+        <a class="btn-link secondary" href="#/templates/edit/${esc(d._id)}">Editar</a>
         <button type="button" class="danger btn-tpl-del">Apagar</button>
       </div>
     </li>`,
@@ -356,43 +507,67 @@ async function renderTemplates(view) {
       }
     };
   });
+}
 
-  ul.querySelectorAll(".btn-tpl-edit").forEach((btn) => {
-    const li = btn.closest("li");
-    const id = li.getAttribute("data-tpl");
-    const doc = (templates || []).find((x) => x._id === id);
-    btn.onclick = async () => {
-      if (!doc) return;
-      const raw = prompt(
-        "JSON: key, label, description, accessHeaderKeys[], def",
-        JSON.stringify(
-          {
-            key: doc.key,
-            label: doc.label,
-            description: doc.description,
-            accessHeaderKeys: doc.accessHeaderKeys,
-            def: doc.def,
-          },
-          null,
-          2,
-        ),
-      );
-      if (raw == null) return;
-      let patch;
-      try {
-        patch = JSON.parse(raw);
-      } catch {
-        alert("JSON inválido.");
-        return;
-      }
-      try {
-        await api(`/mcp-templates/${id}`, { method: "PUT", body: JSON.stringify(patch) });
-        await render();
-      } catch (e) {
-        alert(e.message);
-      }
-    };
-  });
+async function renderTemplateEdit(view, templateId) {
+  const { templates } = await api("/mcp-templates");
+  const doc = (templates || []).find((x) => x._id === templateId);
+  if (!doc) {
+    view.innerHTML = `<p class="feedback feedback--err">Template não encontrado.</p><p class="back-row"><a href="#/templates">← Templates</a></p>`;
+    return;
+  }
+  const keysStr = (doc.accessHeaderKeys || []).join(", ");
+  view.innerHTML = `
+    <div class="panel">
+      <p class="back-row"><a href="#/templates">← Templates MCP</a></p>
+      <h3 class="section-title">Editar template</h3>
+      <div class="row cols-2">
+        <div><label for="etplKey">Chave única</label><input type="text" id="etplKey" value="${esc(doc.key)}" /></div>
+        <div><label for="etplLabel">Etiqueta</label><input type="text" id="etplLabel" value="${esc(doc.label)}" /></div>
+      </div>
+      <label for="etplDesc">Descrição (opcional)</label>
+      <input type="text" id="etplDesc" value="${esc(doc.description || "")}" />
+      <label for="etplHeaderKeys">Cabeçalhos sugeridos (vírgula)</label>
+      <input type="text" id="etplHeaderKeys" value="${esc(keysStr)}" />
+      <label for="etplDef">Definição MCP base (JSON)</label>
+      <textarea id="etplDef" rows="12">${esc(JSON.stringify(doc.def, null, 2))}</textarea>
+      <div class="btn-row">
+        <button type="button" id="btnTplEditSave">Guardar alterações</button>
+        <a href="#/templates" class="secondary" style="margin-top:0.75rem;display:inline-flex;align-items:center;padding:0.55rem 1.1rem;text-decoration:none;border-radius:6px;border:1px solid var(--border-strong);">Cancelar</a>
+      </div>
+      <p id="etplErr" class="feedback feedback--err hidden" role="alert"></p>
+    </div>`;
+  $("btnTplEditSave").onclick = async () => {
+    $("etplErr").classList.add("hidden");
+    let def;
+    try {
+      def = JSON.parse($("etplDef").value || "{}");
+    } catch {
+      $("etplErr").textContent = "JSON inválido na definição.";
+      $("etplErr").classList.remove("hidden");
+      return;
+    }
+    const keysRaw = $("etplHeaderKeys").value.trim();
+    const accessHeaderKeys = keysRaw
+      ? keysRaw.split(",").map((s) => s.trim()).filter(Boolean)
+      : undefined;
+    try {
+      await api(`/mcp-templates/${templateId}`, {
+        method: "PUT",
+        body: JSON.stringify({
+          key: $("etplKey").value.trim(),
+          label: $("etplLabel").value.trim(),
+          description: $("etplDesc").value.trim() || undefined,
+          accessHeaderKeys,
+          def,
+        }),
+      });
+      location.hash = "#/templates";
+    } catch (e) {
+      $("etplErr").textContent = e.message;
+      $("etplErr").classList.remove("hidden");
+    }
+  };
 }
 
 async function renderCatalogo(view) {
@@ -427,7 +602,7 @@ async function renderCatalogo(view) {
       <h4 style="margin:0 0 0.5rem;"><code>${esc(d.key)}</code> — ${esc(d.label || "")}</h4>
       <p class="sub">_id: ${esc(d._id)}</p>
       <div class="btn-row">
-        <button type="button" class="secondary btn-reg-edit">Editar def JSON</button>
+        <a class="btn-link secondary" href="#/catalogo/edit/${esc(d._id)}">Editar</a>
         <button type="button" class="danger btn-reg-del">Apagar</button>
       </div>
     </li>`,
@@ -473,30 +648,57 @@ async function renderCatalogo(view) {
       }
     };
   });
+}
 
-  $("regUl").querySelectorAll(".btn-reg-edit").forEach((btn) => {
-    const li = btn.closest("li");
-    const id = li.getAttribute("data-doc");
-    const doc = (documents || []).find((x) => x._id === id);
-    btn.onclick = async () => {
-      if (!doc) return;
-      const raw = prompt("JSON def:", JSON.stringify(doc.def, null, 2));
-      if (raw == null) return;
-      let def;
-      try {
-        def = JSON.parse(raw);
-      } catch {
-        alert("JSON inválido.");
-        return;
-      }
-      try {
-        await api(`/mcp-registry/${id}`, { method: "PUT", body: JSON.stringify({ def }) });
-        await render();
-      } catch (e) {
-        alert(e.message);
-      }
-    };
-  });
+async function renderCatalogEdit(view, docId) {
+  const { documents } = await api("/mcp-registry");
+  const doc = (documents || []).find((x) => x._id === docId);
+  if (!doc) {
+    view.innerHTML = `<p class="feedback feedback--err">Documento não encontrado.</p><p class="back-row"><a href="#/catalogo">← Catálogo</a></p>`;
+    return;
+  }
+  view.innerHTML = `
+    <div class="panel">
+      <p class="back-row"><a href="#/catalogo">← Catálogo MCP</a></p>
+      <h3 class="section-title">Editar documento do registo</h3>
+      <p class="sub">_id: <code>${esc(doc._id)}</code></p>
+      <div class="row cols-2">
+        <div><label for="eregKey">Chave</label><input type="text" id="eregKey" value="${esc(doc.key)}" /></div>
+        <div><label for="eregLabel">Etiqueta</label><input type="text" id="eregLabel" value="${esc(doc.label || "")}" /></div>
+      </div>
+      <label for="eregDef">Definição MCP (JSON)</label>
+      <textarea id="eregDef" rows="14">${esc(JSON.stringify(doc.def, null, 2))}</textarea>
+      <div class="btn-row">
+        <button type="button" id="btnCatalogSave">Guardar alterações</button>
+        <a href="#/catalogo" class="secondary" style="margin-top:0.75rem;display:inline-flex;align-items:center;padding:0.55rem 1.1rem;text-decoration:none;border-radius:6px;border:1px solid var(--border-strong);">Cancelar</a>
+      </div>
+      <p id="eregErr" class="feedback feedback--err hidden" role="alert"></p>
+    </div>`;
+  $("btnCatalogSave").onclick = async () => {
+    $("eregErr").classList.add("hidden");
+    let def;
+    try {
+      def = JSON.parse($("eregDef").value || "{}");
+    } catch {
+      $("eregErr").textContent = "JSON inválido.";
+      $("eregErr").classList.remove("hidden");
+      return;
+    }
+    try {
+      await api(`/mcp-registry/${docId}`, {
+        method: "PUT",
+        body: JSON.stringify({
+          key: $("eregKey").value.trim(),
+          label: $("eregLabel").value.trim(),
+          def,
+        }),
+      });
+      location.hash = "#/catalogo";
+    } catch (e) {
+      $("eregErr").textContent = e.message;
+      $("eregErr").classList.remove("hidden");
+    }
+  };
 }
 
 function flattenTokens(users) {
@@ -601,6 +803,76 @@ async function renderApiKeys(view) {
   });
 }
 
+async function renderMcpEdit(view, tokenId, mcpId) {
+  const [{ servers }, tplRes, { mcps }] = await Promise.all([
+    api("/servers"),
+    api("/mcp-templates").catch(() => ({ templates: [] })),
+    api(`/tokens/${tokenId}/mcps`),
+  ]);
+  const tplList = tplRes.templates || [];
+  const m = (mcps || []).find((x) => x.id === mcpId);
+  if (!m) {
+    view.innerHTML = `<p class="feedback feedback--err">MCP não encontrado.</p><p class="back-row"><a href="#/mcps/${esc(tokenId)}">← MCPs deste token</a></p>`;
+    return;
+  }
+  const mode = m.url ? "direct" : m.templateId ? "admintpl" : "catalog";
+  const hdrs = JSON.stringify(m.headers || {}, null, 2);
+  const envs = JSON.stringify(m.env || {}, null, 2);
+  const conn = JSON.stringify(m.connection || { headers: {}, env: {} }, null, 2);
+  const accHdr = JSON.stringify(m.connection?.headers || {}, null, 2);
+  const tplOpts = tplOptsHtml(tplList, m.templateId);
+  const srvOpts = serverOptsHtml(servers, m.templateServerKey);
+
+  view.innerHTML = `
+    <div class="panel mcp-edit-root">
+      <p class="back-row"><a href="#/mcps/${esc(tokenId)}">← MCPs deste token</a></p>
+      <h3 class="section-title">Editar MCP</h3>
+      <p class="sub">ID: <code>${esc(m.id)}</code></p>
+      <div class="row cols-2">
+        <div>
+          <label class="label-like">Modo</label>
+          <select class="mcp-mode">
+            <option value="direct"${mode === "direct" ? " selected" : ""}>URL directa</option>
+            <option value="catalog"${mode === "catalog" ? " selected" : ""}>Catálogo global</option>
+            <option value="admintpl"${mode === "admintpl" ? " selected" : ""}>Template administrativo</option>
+          </select>
+        </div>
+        <div>
+          <label class="label-like">Etiqueta (opcional)</label>
+          <input type="text" class="mcp-label" value="${esc(m.label || "")}" placeholder="ex. produção" />
+        </div>
+      </div>
+      <div class="mcp-direct-fields">
+        <label class="label-like">URL</label>
+        <input type="text" class="mcp-url" value="${esc(m.url || "")}" placeholder="https://…/mcp" />
+        <label class="label-like" style="margin-top:0.65rem;">Headers (JSON)</label>
+        <textarea class="mcp-headers" rows="4">${esc(hdrs)}</textarea>
+        <label class="label-like" style="margin-top:0.65rem;">Env (JSON, opcional)</label>
+        <textarea class="mcp-env" rows="3">${esc(envs)}</textarea>
+      </div>
+      <div class="mcp-catalog-fields hidden">
+        <label class="label-like">Chave no hub</label>
+        <select class="mcp-catalog-key">${srvOpts}</select>
+        <label class="label-like" style="margin-top:0.65rem;">Connection (JSON)</label>
+        <textarea class="mcp-conn" rows="6">${esc(conn)}</textarea>
+      </div>
+      <div class="mcp-admintpl-fields hidden">
+        <label class="label-like">Template</label>
+        <select class="mcp-admin-template-id">${tplOpts}</select>
+        <p class="sub mcp-tpl-hint" role="note"></p>
+        <label class="label-like" style="margin-top:0.65rem;">Cabeçalhos de acesso (JSON)</label>
+        <textarea class="mcp-access-headers" rows="5">${esc(accHdr)}</textarea>
+      </div>
+      <div class="btn-row">
+        <button type="button" class="btn-save-mcp">Guardar alterações</button>
+        <a href="#/mcps/${esc(tokenId)}" class="secondary" style="margin-top:0.75rem;display:inline-flex;align-items:center;padding:0.55rem 1.1rem;text-decoration:none;border-radius:6px;border:1px solid var(--border-strong);">Cancelar</a>
+      </div>
+    </div>`;
+
+  const editRoot = view.querySelector(".mcp-edit-root");
+  wireMcpFormPanel(editRoot, tokenId, servers, tplList, { mcpId });
+}
+
 async function renderMcps(view, tokenId) {
   const [{ servers }, tplRes, { users }] = await Promise.all([
     api("/servers"),
@@ -663,7 +935,7 @@ async function renderMcps(view, tokenId) {
         }
       </div>
       <div class="mcp-row__actions">
-        <button type="button" class="secondary btn-mcp-edit" data-mid="${esc(m.id)}">Editar JSON</button>
+        <a class="btn-link secondary" href="#/mcps/${esc(tokenId)}/edit/${esc(m.id)}">Editar</a>
         <button type="button" class="danger btn-mcp-del" data-mid="${esc(m.id)}">Remover</button>
       </div>
     </li>`,
@@ -673,7 +945,7 @@ async function renderMcps(view, tokenId) {
   view.innerHTML = `
     <div class="panel">
       <p class="section-lead">Token: <strong>${esc(tok ? `${tok.userLabel} · ${tok.label}` : tokenId)}</strong>
-        · <a href="#/mcps">Trocar API key</a></p>
+        · <a href="#/mcps">Trocar API key</a> · <a href="#/clientes">Como ligar no Cursor / Claude</a></p>
       <h3 class="section-title">MCPs vinculados</h3>
       <ul class="links">${mcpRows || '<li class="sub">Nenhum MCP.</li>'}</ul>
     </div>
@@ -732,47 +1004,23 @@ async function renderMcps(view, tokenId) {
       }
     });
   });
+}
 
-  view.querySelectorAll(".btn-mcp-edit").forEach((btn) => {
-    btn.addEventListener("click", async () => {
-      const mid = btn.getAttribute("data-mid");
-      const m = (mcps || []).find((x) => x.id === mid);
-      if (!m) return;
-      const raw = prompt(
-        "Editar MCP (JSON): label, url, headers, env, templateServerKey, templateId, connection",
-        JSON.stringify(
-          {
-            label: m.label,
-            url: m.url,
-            headers: m.headers,
-            env: m.env,
-            templateServerKey: m.templateServerKey,
-            templateId: m.templateId,
-            connection: m.connection,
-          },
-          null,
-          2,
-        ),
-      );
-      if (raw == null) return;
-      let patch;
-      try {
-        patch = JSON.parse(raw);
-      } catch {
-        alert("JSON inválido.");
-        return;
-      }
-      try {
-        await api(`/tokens/${tokenId}/mcps/${mid}`, {
-          method: "PUT",
-          body: JSON.stringify(patch),
-        });
-        await render();
-      } catch (e) {
-        alert(e.message);
-      }
-    });
-  });
+function viewTitleForRoute(route) {
+  const map = {
+    inicio: "Início",
+    utilizadores: "Utilizadores",
+    templates: "Templates MCP",
+    catalogo: "Catálogo MCP",
+    "api-keys": "API keys",
+    mcps: "MCPs por API key",
+    clientes: "Ligar Cursor / Claude",
+    "user-edit": "Editar utilizador",
+    "template-edit": "Editar template",
+    "catalog-edit": "Editar catálogo",
+    "mcp-edit": "Editar MCP",
+  };
+  return map[route.name] || "Painel";
 }
 
 async function render() {
@@ -782,29 +1030,33 @@ async function render() {
   const view = $("appView");
   if (!view || !vt) return;
 
-  const titles = {
-    inicio: "Início",
-    utilizadores: "Utilizadores",
-    templates: "Templates MCP",
-    catalogo: "Catálogo MCP",
-    "api-keys": "API keys",
-    mcps: "MCPs por API key",
-  };
-  vt.textContent = titles[route.name] || "Painel";
+  vt.textContent = viewTitleForRoute(route);
 
   try {
     switch (route.name) {
       case "inicio":
         await renderInicio(view);
         break;
+      case "clientes":
+        await renderClientes(view);
+        break;
       case "utilizadores":
         await renderUtilizadores(view);
+        break;
+      case "user-edit":
+        await renderUserEdit(view, route.userId);
         break;
       case "templates":
         await renderTemplates(view);
         break;
+      case "template-edit":
+        await renderTemplateEdit(view, route.templateId);
+        break;
       case "catalogo":
         await renderCatalogo(view);
+        break;
+      case "catalog-edit":
+        await renderCatalogEdit(view, route.docId);
         break;
       case "api-keys":
         await renderApiKeys(view);
@@ -812,8 +1064,16 @@ async function render() {
       case "mcps":
         await renderMcps(view, route.tokenId);
         break;
+      case "mcp-edit":
+        await renderMcpEdit(view, route.tokenId, route.mcpId);
+        break;
       default:
-        location.hash = "#/inicio";
+        if ((location.hash || "").replace(/^#\/?/, "") !== "inicio") {
+          location.hash = "#/inicio";
+        } else {
+          await renderInicio(view);
+        }
+        break;
     }
   } catch (e) {
     view.innerHTML = `<p class="feedback feedback--err">${esc(e.message)}</p>`;

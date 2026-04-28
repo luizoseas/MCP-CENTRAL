@@ -1,6 +1,7 @@
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
-import { randomBytes, randomUUID } from "node:crypto";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
+import { randomUUID } from "node:crypto";
+import { persistJsonFile } from "./persistJsonFile.js";
 
 /**
  * Documento na "coleção" mcp_servers (ficheiro JSON — substituível por MongoDB, etc.).
@@ -72,11 +73,7 @@ export class McpRegistryStore {
   }
 
   private async persist(): Promise<void> {
-    await mkdir(dirname(this.filePath), { recursive: true });
-    const tmp = `${this.filePath}.${randomBytes(8).toString("hex")}.tmp`;
-    const json = `${JSON.stringify(this.data, null, 2)}\n`;
-    await writeFile(tmp, json, "utf8");
-    await rename(tmp, this.filePath);
+    await persistJsonFile(this.filePath, this.data);
   }
 
   async load(): Promise<void> {
