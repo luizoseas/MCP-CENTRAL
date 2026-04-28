@@ -17,6 +17,16 @@ function esc(s) {
   return d.innerHTML;
 }
 
+/** Igualdade de IDs no painel: trim; UUIDs sem distinguir maiúsculas/minúsculas. */
+function sameEntityId(a, b) {
+  const ta = String(a ?? "").trim();
+  const tb = String(b ?? "").trim();
+  if (ta === tb) return true;
+  const uuid =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  return uuid.test(ta) && uuid.test(tb) && ta.toLowerCase() === tb.toLowerCase();
+}
+
 async function api(path, opts = {}) {
   const r = await fetch("/hub-admin/api" + path, {
     credentials: "same-origin",
@@ -58,21 +68,22 @@ function parseRoute() {
   const parts = h.split("/").filter(Boolean);
   const name = parts[0] || "inicio";
   const empty = { tokenId: null, mcpId: null, userId: null, templateId: null, docId: null };
+  const seg = (i) => (typeof parts[i] === "string" ? parts[i].trim() : "");
 
-  if (name === "mcps" && parts[1]) {
-    if (parts[2] === "edit" && parts[3]) {
-      return { name: "mcp-edit", tokenId: parts[1], mcpId: parts[3], ...empty };
+  if (name === "mcps" && seg(1)) {
+    if (seg(2) === "edit" && seg(3)) {
+      return { name: "mcp-edit", tokenId: seg(1), mcpId: seg(3), ...empty };
     }
-    return { name: "mcps", tokenId: parts[1], ...empty };
+    return { name: "mcps", tokenId: seg(1), ...empty };
   }
-  if (name === "utilizadores" && parts[1] === "edit" && parts[2]) {
-    return { name: "user-edit", userId: parts[2], ...empty };
+  if (name === "utilizadores" && seg(1) === "edit" && seg(2)) {
+    return { name: "user-edit", userId: seg(2), ...empty };
   }
-  if (name === "templates" && parts[1] === "edit" && parts[2]) {
-    return { name: "template-edit", templateId: parts[2], ...empty };
+  if (name === "templates" && seg(1) === "edit" && seg(2)) {
+    return { name: "template-edit", templateId: seg(2), ...empty };
   }
-  if (name === "catalogo" && parts[1] === "edit" && parts[2]) {
-    return { name: "catalog-edit", docId: parts[2], ...empty };
+  if (name === "catalogo" && seg(1) === "edit" && seg(2)) {
+    return { name: "catalog-edit", docId: seg(2), ...empty };
   }
 
   return { name, ...empty };
@@ -294,7 +305,7 @@ async function renderClientes(view) {
         <li><strong>No painel:</strong> cria um <a href="#/utilizadores">utilizador</a>, uma <a href="#/api-keys">API key</a> e os <a href="#/mcps">MCPs</a> vinculados a essa key (catálogo, URL ou template).</li>
         <li><strong>Copia o secret</strong> da API key quando a gerares — é o valor do cabeçalho <code>X-MCP-Hub-User-Token</code> (não confundir com a palavra-passe do admin do painel).</li>
         <li><strong>URL do hub MCP</strong> neste servidor (origem desta página + caminho configurado):<br /><code class="pre-block" style="margin-top:0.5rem;">${esc(endpoint)}</code>
-          <span class="sub">Caminho HTTP vem de <code>MCP_HUB_HTTP_PATH</code> no processo do hub (resposta <code>/api/config</code> → <code>mcpHttpPath</code>).</span></li>
+          <span class="sub">O caminho do endpoint MCP é o configurado neste hub; o endereço acima reflecte a sessão actual.</span></li>
       </ol>
     </div>
     <div class="panel">
@@ -399,7 +410,7 @@ async function renderUtilizadores(view) {
 
 async function renderUserEdit(view, userId) {
   const { users } = await api("/users");
-  const u = (users || []).find((x) => x.id === userId);
+  const u = (users || []).find((x) => sameEntityId(x.id, userId));
   if (!u) {
     view.innerHTML = `<p class="feedback feedback--err">Utilizador não encontrado.</p><p class="back-row"><a href="#/utilizadores">← Utilizadores</a></p>`;
     return;
@@ -426,7 +437,7 @@ async function renderUserEdit(view, userId) {
       return;
     }
     try {
-      await api(`/users/${userId}`, { method: "PUT", body: JSON.stringify({ label: lab }) });
+      await api(`/users/${u.id}`, { method: "PUT", body: JSON.stringify({ label: lab }) });
       location.hash = "#/utilizadores";
     } catch (e) {
       $("editUErr").textContent = e.message;
@@ -833,7 +844,7 @@ async function renderMcpEdit(view, tokenId, mcpId) {
     api(`/tokens/${tokenId}/mcps`),
   ]);
   const tplList = tplRes.templates || [];
-  const m = (mcps || []).find((x) => x.id === mcpId);
+  const m = (mcps || []).find((x) => sameEntityId(x.id, mcpId));
   if (!m) {
     view.innerHTML = `<p class="feedback feedback--err">MCP não encontrado.</p><p class="back-row"><a href="#/mcps/${esc(tokenId)}">← MCPs deste token</a></p>`;
     return;
@@ -936,7 +947,7 @@ async function renderMcps(view, tokenId) {
     return;
   }
 
-  const tok = flat.find((x) => x.id === tokenId);
+  const tok = flat.find((x) => sameEntityId(x.id, tokenId));
   const { mcps } = await api(`/tokens/${tokenId}/mcps`);
 
   const mcpRows = (mcps || [])
@@ -1102,11 +1113,25 @@ async function render() {
   }
 }
 
+function syncSidebarDisplayName(me) {
+  const el = $("sidebarUserName");
+  if (!el) return;
+  if (me?.admin) {
+    el.textContent =
+      typeof me.displayName === "string" && me.displayName.trim()
+        ? me.displayName.trim()
+        : "Admin";
+  } else {
+    el.textContent = "—";
+  }
+}
+
 async function checkMe() {
   try {
     const j = await api("/me");
     if (j.admin) {
       showApp();
+      syncSidebarDisplayName(j);
       await loadConfig();
       await render();
       $("appMain")?.focus({ preventScroll: true });
@@ -1120,11 +1145,22 @@ $("loginForm").addEventListener("submit", async (e) => {
   e.preventDefault();
   $("loginErr").classList.add("hidden");
   try {
-    await api("/login", {
+    const payload = {
+      password: $("adminPw").value,
+      username: ($("adminUser")?.value ?? "").trim(),
+    };
+    const loginRes = await api("/login", {
       method: "POST",
-      body: JSON.stringify({ password: $("adminPw").value }),
+      body: JSON.stringify(payload),
     });
     showApp();
+    syncSidebarDisplayName({
+      admin: true,
+      displayName:
+        typeof loginRes.displayName === "string" && loginRes.displayName.trim()
+          ? loginRes.displayName
+          : "Admin",
+    });
     await loadConfig();
     await render();
     $("appMain")?.focus({ preventScroll: true });
@@ -1136,6 +1172,7 @@ $("loginForm").addEventListener("submit", async (e) => {
 
 $("btnLogout").addEventListener("click", async () => {
   await api("/logout", { method: "POST" });
+  syncSidebarDisplayName({ admin: false });
   $("appSection").classList.add("hidden");
   $("loginSection").classList.remove("hidden");
   $("main").classList.remove("main--app");
@@ -1154,4 +1191,35 @@ $("appView")?.addEventListener("click", (ev) => {
   tryNavigateMcpsPicker();
 });
 
+async function applyLoginUiMode() {
+  const lead = $("loginLead");
+  const wrap = $("loginUserWrap");
+  const userIn = $("adminUser");
+  try {
+    const j = await api("/auth-config");
+    if (j.configured && j.loginMode === "ldap") {
+      wrap?.classList.remove("hidden");
+      userIn?.setAttribute("required", "required");
+      if (lead) {
+        lead.textContent =
+          "Utilizador e palavra-passe do domínio (LDAP). O utilizador tem de existir na base configurada no hub.";
+      }
+    } else {
+      wrap?.classList.add("hidden");
+      userIn?.removeAttribute("required");
+      if (lead) {
+        lead.textContent =
+          "Introduz a palavra-passe de administrador definida na configuração do hub.";
+      }
+    }
+  } catch {
+    wrap?.classList.add("hidden");
+    userIn?.removeAttribute("required");
+    if (lead) {
+      lead.textContent = "Introduz as credenciais de acesso ao painel.";
+    }
+  }
+}
+
+void applyLoginUiMode();
 void checkMe();

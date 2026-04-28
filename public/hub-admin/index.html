@@ -501,14 +501,56 @@
     }
 
     .sidebar {
+      display: flex;
+      flex-direction: column;
       background: var(--surface);
       border-right: 1px solid var(--border);
-      padding: 0.5rem 0 1.5rem;
+      padding: 0.5rem 0 1rem;
+      min-height: min(100%, calc(100vh - 10rem));
     }
     .sidebar-nav {
       display: flex;
       flex-direction: column;
       gap: 0.1rem;
+      flex: 1 1 auto;
+    }
+    .sidebar-footer {
+      flex-shrink: 0;
+      margin-top: auto;
+      padding: 1rem 1.15rem 0.25rem;
+      border-top: 1px solid var(--border);
+    }
+    .sidebar-user__label {
+      margin: 0;
+      font-size: 0.6875rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+    .sidebar-user__name {
+      margin: 0.35rem 0 0.85rem;
+      font-size: 0.9375rem;
+      font-weight: 700;
+      color: var(--text);
+      line-height: 1.35;
+      word-break: break-word;
+    }
+    .btn-disconnect {
+      width: 100%;
+      margin-top: 0;
+      background: #fef2f2;
+      color: #b91c1c;
+      border: 1px solid rgba(185, 28, 28, 0.45);
+      font-weight: 700;
+    }
+    .btn-disconnect:hover {
+      background: #fee2e2;
+      border-color: #b91c1c;
+      color: #991b1b;
+    }
+    .btn-disconnect:focus-visible {
+      box-shadow: 0 0 0 2px var(--surface), 0 0 0 5px rgba(185, 28, 28, 0.35);
     }
     .sidebar-nav a {
       display: flex;
@@ -707,8 +749,12 @@
   <main id="main" tabindex="-1">
     <section id="loginSection" class="panel panel--narrow" aria-labelledby="login-heading">
       <h2 id="login-heading" class="section-title">Sessão de administrador</h2>
-      <p class="section-lead">Variável de ambiente <code>MCP_HUB_ADMIN_PASSWORD</code>.</p>
+      <p class="section-lead" id="loginLead">Introduz as credenciais de acesso ao painel.</p>
       <form id="loginForm" novalidate>
+        <div id="loginUserWrap" class="hidden">
+          <label for="adminUser">Utilizador</label>
+          <input type="text" id="adminUser" name="username" autocomplete="username" spellcheck="false" />
+        </div>
         <label for="adminPw">Palavra-passe</label>
         <input type="password" id="adminPw" name="password" autocomplete="current-password" required />
         <button type="submit" id="btnLogin">Entrar</button>
@@ -728,6 +774,11 @@
             <a href="#/mcps">MCPs por API key</a>
             <a href="#/clientes">Ligar Cursor / Claude</a>
           </nav>
+          <div class="sidebar-footer">
+            <p class="sidebar-user__label">Utilizador</p>
+            <p class="sidebar-user__name" id="sidebarUserName">—</p>
+            <button type="button" class="btn-disconnect" id="btnLogout">Desconectar</button>
+          </div>
         </aside>
         <div class="main-col" id="appMain" tabindex="-1">
           <div class="panel panel--toolbar" style="margin-bottom:1rem;">
@@ -735,9 +786,6 @@
               <h2 id="viewTitle" class="section-title" style="margin-bottom:0.35rem;">Painel</h2>
               <p class="path-line"><strong>Utilizadores</strong> <code id="dataPath"></code></p>
               <p class="path-line"><strong>Registo</strong> <code id="registryPath"></code></p>
-            </div>
-            <div class="btn-row" style="margin-top:0;">
-              <button type="button" class="secondary" id="btnLogout">Terminar sessão</button>
             </div>
           </div>
           <div id="appView" class="view-body"></div>

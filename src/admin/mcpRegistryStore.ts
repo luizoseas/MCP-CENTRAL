@@ -69,7 +69,6 @@ export class McpRegistryStore {
   private readonly filePath: string;
   private readonly useMongo: boolean;
   private data: RegistryFile = { mcp_servers: [] };
-  private loaded = false;
 
   constructor(filePath?: string) {
     this.useMongo = isMongoPersistenceEnabled();
@@ -120,14 +119,11 @@ export class McpRegistryStore {
     await writeJsonToFile(this.filePath, this.data);
   }
 
+  /** Sempre relê MongoDB ou ficheiro (evita cache desactualizado entre pedidos). */
   async load(): Promise<void> {
-    if (this.loaded) {
-      return;
-    }
     if (this.useMongo) {
       const parsed: unknown = await mongoLoadRegistryState();
       this.applyParsedRegistry(parsed);
-      this.loaded = true;
       return;
     }
     try {
@@ -142,12 +138,6 @@ export class McpRegistryStore {
         throw e;
       }
     }
-    this.loaded = true;
-  }
-
-  /** Força releitura do disco na próxima operação. */
-  invalidate(): void {
-    this.loaded = false;
   }
 
   async list(): Promise<McpServerDocument[]> {

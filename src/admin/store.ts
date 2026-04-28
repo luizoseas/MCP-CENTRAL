@@ -21,6 +21,19 @@ function emptyV2(): HubUsersFile {
   return { schemaVersion: 2, users: [], api_tokens: [], token_mcps: [] };
 }
 
+/** Compara IDs: trim; UUIDs são comparados sem distinguir maiúsculas/minúsculas. */
+function idsMatch(stored: string, requested: string): boolean {
+  const a = stored.trim();
+  const b = requested.trim();
+  if (a === b) return true;
+  const uuid =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (uuid.test(a) && uuid.test(b)) {
+    return a.toLowerCase() === b.toLowerCase();
+  }
+  return false;
+}
+
 function isV2(parsed: unknown): parsed is HubUsersFile {
   return (
     typeof parsed === "object" &&
@@ -103,7 +116,6 @@ export class HubUserStore {
   private readonly filePath: string;
   private readonly useMongo: boolean;
   private data: HubUsersFile = emptyV2();
-  private loaded = false;
 
   constructor(filePath?: string) {
     this.useMongo = isMongoPersistenceEnabled();
@@ -122,10 +134,8 @@ export class HubUserStore {
     await writeJsonToFile(this.filePath, this.data);
   }
 
+  /** Sempre relê MongoDB ou ficheiro — evita estado desactualizado entre pedidos (ex.: ficheiro editado externamente). */
   async load(): Promise<void> {
-    if (this.loaded) {
-      return;
-    }
     if (this.useMongo) {
       const parsed: unknown = await mongoLoadHubUsersState();
       if (isV2(parsed)) {
@@ -137,13 +147,11 @@ export class HubUserStore {
         };
       } else if (isV1Shape(parsed)) {
         this.data = migrateV1ToV2(parsed);
-        this.loaded = true;
         await this.persist();
         return;
       } else {
         this.data = emptyV2();
       }
-      this.loaded = true;
       return;
     }
     try {
@@ -158,7 +166,6 @@ export class HubUserStore {
         };
       } else if (isV1Shape(parsed)) {
         this.data = migrateV1ToV2(parsed);
-        this.loaded = true;
         await this.persist();
         return;
       } else {
@@ -172,11 +179,6 @@ export class HubUserStore {
         throw e;
       }
     }
-    this.loaded = true;
-  }
-
-  invalidate(): void {
-    this.loaded = false;
   }
 
   listUsers(): Pick<HubUser, "id" | "label" | "createdAt">[] {
@@ -188,7 +190,7 @@ export class HubUserStore {
   }
 
   getUserById(id: string): HubUser | undefined {
-    return this.data.users.find((u) => u.id === id);
+    return this.data.users.find((u) => idsMatch(u.id, id));
   }
 
   /** Resolve por secret do token (cabeçalho X-MCP-Hub-User-Token). */
@@ -202,20 +204,20 @@ export class HubUserStore {
 
   listTokensForUser(userId: string): Omit<ApiTokenRecord, "secret">[] {
     return this.data.api_tokens
-      .filter((x) => x.userId === userId)
+      .filter((x) => idsMatch(x.userId, userId))
       .map(({ secret: _s, ...rest }) => rest);
   }
 
   getTokenById(tokenId: string): ApiTokenRecord | undefined {
-    return this.data.api_tokens.find((x) => x.id === tokenId);
+    return this.data.api_tokens.find((x) => idsMatch(x.id, tokenId));
   }
 
   mcpsForToken(tokenId: string): TokenMcpRecord[] {
-    return this.data.token_mcps.filter((m) => m.tokenId === tokenId);
+    return this.data.token_mcps.filter((m) => idsMatch(m.tokenId, tokenId));
   }
 
   getMcpById(mcpId: string): TokenMcpRecord | undefined {
-    return this.data.token_mcps.find((m) => m.id === mcpId);
+    return this.data.token_mcps.find((m) => idsMatch(m.id, mcpId));
   }
 
   async createUser(label: string): Promise<{ user: HubUser }> {
@@ -232,7 +234,7 @@ export class HubUserStore {
 
   async updateUser(userId: string, label: string): Promise<HubUser | undefined> {
     await this.load();
-    const u = this.data.users.find((x) => x.id === userId);
+    const u = this.data.users.find((x) => idsMatch(x.id, userId));
     if (!u) {
       return undefined;
     }
@@ -246,14 +248,15 @@ export class HubUserStore {
 
   async deleteUser(userId: string): Promise<boolean> {
     await this.load();
-    const before = this.data.users.length;
-    this.data.users = this.data.users.filter((u) => u.id !== userId);
-    const tids = this.data.api_tokens.filter((t) => t.userId === userId).map((t) => t.id);
-    this.data.api_tokens = this.data.api_tokens.filter((t) => t.userId !== userId);
-    this.data.token_mcps = this.data.token_mcps.filter((m) => !tids.includes(m.tokenId));
-    if (this.data.users.length === before) {
+    const victim = this.data.users.find((u) => idsMatch(u.id, userId));
+    if (!victim) {
       return false;
     }
+    const uid = victim.id;
+    this.data.users = this.data.users.filter((u) => u.id !== uid);
+    const tids = this.data.api_tokens.filter((t) => t.userId === uid).map((t) => t.id);
+    this.data.api_tokens = this.data.api_tokens.filter((t) => t.userId !== uid);
+    this.data.token_mcps = this.data.token_mcps.filter((m) => !tids.includes(m.tokenId));
     await this.persist();
     return true;
   }
@@ -263,13 +266,14 @@ export class HubUserStore {
     label: string,
   ): Promise<{ token: Omit<ApiTokenRecord, "secret">; secret: string }> {
     await this.load();
-    if (!this.getUserById(userId)) {
+    const owner = this.getUserById(userId);
+    if (!owner) {
       throw new Error("Utilizador não encontrado.");
     }
     const secret = randomBytes(32).toString("hex");
     const rec: ApiTokenRecord = {
       id: randomUUID(),
-      userId,
+      userId: owner.id,
       label: label.trim() || "token",
       secret,
       createdAt: new Date().toISOString(),
@@ -283,8 +287,8 @@ export class HubUserStore {
   async deleteToken(tokenId: string): Promise<boolean> {
     await this.load();
     const before = this.data.api_tokens.length;
-    this.data.api_tokens = this.data.api_tokens.filter((t) => t.id !== tokenId);
-    this.data.token_mcps = this.data.token_mcps.filter((m) => m.tokenId !== tokenId);
+    this.data.api_tokens = this.data.api_tokens.filter((t) => !idsMatch(t.id, tokenId));
+    this.data.token_mcps = this.data.token_mcps.filter((m) => !idsMatch(m.tokenId, tokenId));
     if (this.data.api_tokens.length === before) {
       return false;
     }
@@ -305,9 +309,11 @@ export class HubUserStore {
     },
   ): Promise<TokenMcpRecord> {
     await this.load();
-    if (!this.getTokenById(tokenId)) {
+    const tokRow = this.getTokenById(tokenId);
+    if (!tokRow) {
       throw new Error("Token não encontrado.");
     }
+    const canonicalTokenId = tokRow.id;
     const now = new Date().toISOString();
     const url = input.url?.trim();
     const tpl = input.templateServerKey?.trim();
@@ -320,7 +326,7 @@ export class HubUserStore {
     }
     const m: TokenMcpRecord = {
       id: randomUUID(),
-      tokenId,
+      tokenId: canonicalTokenId,
       label: input.label?.trim(),
       url: url || undefined,
       headers: input.headers,
@@ -349,7 +355,7 @@ export class HubUserStore {
     },
   ): Promise<TokenMcpRecord | undefined> {
     await this.load();
-    const idx = this.data.token_mcps.findIndex((m) => m.id === mcpId);
+    const idx = this.data.token_mcps.findIndex((m) => idsMatch(m.id, mcpId));
     if (idx === -1) {
       return undefined;
     }
@@ -411,7 +417,7 @@ export class HubUserStore {
   async deleteMcp(mcpId: string): Promise<boolean> {
     await this.load();
     const before = this.data.token_mcps.length;
-    this.data.token_mcps = this.data.token_mcps.filter((m) => m.id !== mcpId);
+    this.data.token_mcps = this.data.token_mcps.filter((m) => !idsMatch(m.id, mcpId));
     if (this.data.token_mcps.length === before) {
       return false;
     }

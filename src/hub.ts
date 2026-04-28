@@ -28,6 +28,7 @@ import {
 } from "./admin/mongoHubPersistence.js";
 import { createHubAdminRouter } from "./admin/router.js";
 import { getMcpRegistryStore } from "./admin/mcpRegistryStore.js";
+import type { HubLdapOptions } from "./admin/ldapAuth.js";
 import { HubUserStore } from "./admin/store.js";
 import type { HubConnectionOverrides, TokenMcpRecord } from "./admin/types.js";
 
@@ -944,6 +945,47 @@ type SseSessionBundle = {
   upstreams: Upstream[];
 };
 
+function readLdapSearchScope(): HubLdapOptions["searchScope"] {
+  const s = process.env.MCP_HUB_LDAP_SEARCH_SCOPE?.trim().toLowerCase();
+  if (s === "base") {
+    return "base";
+  }
+  if (s === "one") {
+    return "one";
+  }
+  return "sub";
+}
+
+/** Lê opções LDAP do ambiente; devolve null se faltar algum campo obrigatório. */
+function buildHubLdapOptions(): HubLdapOptions | null {
+  const url = process.env.MCP_HUB_LDAP_URL?.trim();
+  const bindDn = process.env.MCP_HUB_LDAP_BIND_DN?.trim();
+  const bindPassword = process.env.MCP_HUB_LDAP_BIND_PASSWORD?.trim();
+  const userSearchBase = process.env.MCP_HUB_LDAP_USER_SEARCH_BASE?.trim();
+  if (!url || !bindDn || !bindPassword || !userSearchBase) {
+    return null;
+  }
+  const userFilter =
+    process.env.MCP_HUB_LDAP_USER_FILTER?.trim() ||
+    "(&(objectCategory=person)(sAMAccountName={{username}}))";
+  const parsedTimeout = Number(process.env.MCP_HUB_LDAP_TIMEOUT_MS?.trim());
+  const connectTimeoutMs = Number.isFinite(parsedTimeout)
+    ? Math.max(1000, parsedTimeout)
+    : 8000;
+  const tlsRejectUnauthorized =
+    process.env.MCP_HUB_LDAP_TLS_INSECURE?.trim() === "1";
+  return {
+    url,
+    bindDn,
+    bindPassword,
+    userSearchBase,
+    userFilter,
+    searchScope: readLdapSearchScope(),
+    connectTimeoutMs,
+    tlsRejectUnauthorized,
+  };
+}
+
 async function serveHttp() {
   const port = Number(process.env.MCP_HUB_HTTP_PORT ?? "3343");
   /** 0.0.0.0 = aceita ligações de qualquer IP na máquina (porta aberta no firewall). */
@@ -968,10 +1010,15 @@ async function serveHttp() {
   }
 
   const hubUserStore = new HubUserStore();
+  const hubLdapOptions = buildHubLdapOptions();
   const adminPassword = process.env.MCP_HUB_ADMIN_PASSWORD?.trim();
   const adminSessionSecret =
     process.env.MCP_HUB_ADMIN_SECRET?.trim() || adminPassword;
-  const hubAdminEnabled = Boolean(adminPassword && adminSessionSecret);
+  const hubAdminEnabled = Boolean(
+    adminSessionSecret && (hubLdapOptions || adminPassword),
+  );
+  const adminLoginMode =
+    hubLdapOptions && adminSessionSecret ? "ldap" : "password";
   await hubUserStore.load().catch(() => undefined);
   app.use(
     "/hub-admin",
@@ -981,6 +1028,8 @@ async function serveHttp() {
       registry: getMcpRegistryStore(),
       adminPassword: adminPassword ?? "",
       sessionSecret: adminSessionSecret ?? "",
+      loginMode: adminLoginMode,
+      ldapOptions: hubLdapOptions,
       getMergedServerKeys: async () =>
         Object.keys((await loadMergedHubConfig()).mcpServers).sort(),
       parseServerDef: (v: unknown) => HubServerDefSchema.parse(v),
@@ -989,10 +1038,14 @@ async function serveHttp() {
   );
   const adminHost = httpHost === "0.0.0.0" ? "127.0.0.1" : httpHost;
   if (hubAdminEnabled) {
-    log(`Admin activo: http://${adminHost}:${port}/hub-admin`);
+    log(
+      adminLoginMode === "ldap"
+        ? `Admin activo (LDAP): http://${adminHost}:${port}/hub-admin`
+        : `Admin activo: http://${adminHost}:${port}/hub-admin`,
+    );
   } else {
     log(
-      `Admin em modo informativo (sem login): http://${adminHost}:${port}/hub-admin — defina MCP_HUB_ADMIN_PASSWORD para activar.`,
+      `Admin em modo informativo (sem login): http://${adminHost}:${port}/hub-admin — configura palavra-passe de admin ou LDAP.`,
     );
   }
 
@@ -1145,6 +1198,7 @@ async function serveHttp() {
       transport: "streamable-http",
       hubAdmin: "/hub-admin",
       hubAdminLoginEnabled: hubAdminEnabled,
+      hubAdminAuth: hubAdminEnabled ? adminLoginMode : "off",
       mcpRegistry: mongo
         ? "Registo + utilizadores/tokens/MCPs em MongoDB (MCP_HUB_MONGODB_URI); mescla mcp-hub.config.json."
         : "Registo NoSQL em disco (mcp_servers + mcp_templates): MCP_HUB_MCP_REGISTRY_FILE; mescla com mcp-hub.config.json.",

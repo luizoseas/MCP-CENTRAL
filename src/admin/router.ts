@@ -7,12 +7,17 @@ import type { McpRegistryStore } from "./mcpRegistryStore.js";
 import { HubUserStore } from "./store.js";
 import {
   adminCookieName,
+  parseAdminSession,
   readAdminCookie,
   signAdminSession,
   verifyAdminSession,
 } from "./session.js";
 import { isMongoPersistenceEnabled, mongoCollectionName, mongoDbName } from "./mongoHubPersistence.js";
 import type { HubConnectionOverrides } from "./types.js";
+import {
+  verifyLdapUserPassword,
+  type HubLdapOptions,
+} from "./ldapAuth.js";
 
 const SESSION_MS = 8 * 60 * 60 * 1000;
 
@@ -28,7 +33,7 @@ function parseJsonBody(req: Request): unknown {
 }
 
 const ADMIN_NOT_CONFIGURED_MSG =
-  "Painel admin não configurado. Define a variável de ambiente MCP_HUB_ADMIN_PASSWORD e reinicia o hub.";
+  "Painel admin não configurado. Configura login por palavra-passe ou LDAP e reinicia o hub.";
 
 const disabledSetupHtml = `<!DOCTYPE html>
 <html lang="pt"><head><meta charset="utf-8"/><title>MCP Hub — Admin</title>
@@ -36,21 +41,22 @@ const disabledSetupHtml = `<!DOCTYPE html>
 code{background:#1a2332;padding:.15rem .4rem;border-radius:4px}</style></head><body>
 <h1>Painel admin — configuração em falta</h1>
 <p>O servidor HTTP está a correr, mas o admin <strong>não foi activado</strong>.</p>
-<p>Define no ambiente do processo:</p>
-<ul>
-<li><code>MCP_HUB_ADMIN_PASSWORD</code> — palavra-passe para entrar nesta UI</li>
-<li><code>MCP_HUB_ADMIN_SECRET</code> — opcional; cookie de sessão (senão usa a mesma palavra-passe)</li>
-</ul>
-<p>Em Docker, adiciona estas variáveis ao <code>docker-compose.yml</code> ou ao <code>.env</code> e recria o contentor.</p>
-<p>Endpoint MCP: <code>GET …/mcp/health</code> indica <code>hubAdmin: "/hub-admin"</code> quando estiver activo.</p>
+<p>Configura <strong>login por palavra-passe</strong> ou <strong>LDAP</strong> no processo do hub (ficheiro de ambiente do deployment) e reinicia.</p>
+<p>Em Docker, ajusta o compose ou o ficheiro de env do contentor e recria o serviço.</p>
+<p>O endpoint <code>GET …/mcp/health</code> indica quando o painel está activo.</p>
 </body></html>`;
+
+export type HubAdminLoginMode = "password" | "ldap";
 
 export function createHubAdminRouter(opts: {
   hubAdminEnabled: boolean;
   store: HubUserStore;
   registry: McpRegistryStore;
+  /** Vazio quando só LDAP. */
   adminPassword: string;
   sessionSecret: string;
+  loginMode: HubAdminLoginMode;
+  ldapOptions: HubLdapOptions | null;
   getMergedServerKeys: () => Promise<string[]>;
   parseServerDef: (v: unknown) => unknown;
   /** Caminho HTTP do endpoint MCP (ex. /mcp), sem host — para instruções no painel. */
@@ -63,6 +69,8 @@ export function createHubAdminRouter(opts: {
     registry,
     adminPassword,
     sessionSecret,
+    loginMode,
+    ldapOptions,
     getMergedServerKeys,
     parseServerDef,
     mcpHttpPath,
@@ -88,24 +96,62 @@ export function createHubAdminRouter(opts: {
     next();
   };
 
-  r.post("/api/login", (req: Request, res: Response) => {
+  r.get("/api/auth-config", (_req: Request, res: Response) => {
+    if (!hubAdminEnabled) {
+      res.json({ configured: false, loginMode: null });
+      return;
+    }
+    res.json({ configured: true, loginMode });
+  });
+
+  r.post("/api/login", async (req: Request, res: Response) => {
     if (!hubAdminEnabled) {
       adminNotReady(req, res);
       return;
     }
-    const body = parseJsonBody(req) as { password?: string };
+    const body = parseJsonBody(req) as { password?: string; username?: string };
     const pw = String(body.password ?? "");
-    if (!timingSafeEqualStr(adminPassword, pw)) {
-      res.status(401).json({ error: "Palavra-passe inválida." });
+    const username = String(body.username ?? "").trim();
+
+    try {
+      if (loginMode === "ldap") {
+        if (!ldapOptions) {
+          res.status(500).json({ error: "LDAP não está configurado no servidor." });
+          return;
+        }
+        if (!username) {
+          res.status(400).json({ error: "Indica o utilizador." });
+          return;
+        }
+        if (!pw) {
+          res.status(400).json({ error: "Indica a palavra-passe." });
+          return;
+        }
+        const ok = await verifyLdapUserPassword(ldapOptions, username, pw);
+        if (!ok) {
+          res.status(401).json({ error: "Credenciais inválidas." });
+          return;
+        }
+      } else {
+        if (!timingSafeEqualStr(adminPassword, pw)) {
+          res.status(401).json({ error: "Palavra-passe inválida." });
+          return;
+        }
+      }
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      res.status(500).json({ error: msg });
       return;
     }
-    const token = signAdminSession(sessionSecret, SESSION_MS);
+
+    const displayName = loginMode === "ldap" ? username : "Admin";
+    const token = signAdminSession(sessionSecret, SESSION_MS, displayName);
     const maxAgeSec = Math.floor(SESSION_MS / 1000);
     res.setHeader(
       "Set-Cookie",
       `${adminCookieName()}=${encodeURIComponent(token)}; HttpOnly; Path=/hub-admin; SameSite=Lax; Max-Age=${maxAgeSec}`,
     );
-    res.json({ ok: true });
+    res.json({ ok: true, displayName });
   });
 
   r.post("/api/logout", (_req: Request, res: Response) => {
@@ -122,11 +168,17 @@ export function createHubAdminRouter(opts: {
       return;
     }
     const tok = readAdminCookie(req);
-    if (!tok || !verifyAdminSession(sessionSecret, tok)) {
+    const sess = tok ? parseAdminSession(sessionSecret, tok) : null;
+    if (!sess) {
       res.json({ ok: false, admin: false, configured: true });
       return;
     }
-    res.json({ ok: true, admin: true, configured: true });
+    res.json({
+      ok: true,
+      admin: true,
+      configured: true,
+      displayName: sess.sub,
+    });
   });
 
   r.get("/api/servers", requireAdmin, async (_req: Request, res: Response) => {
@@ -157,7 +209,7 @@ export function createHubAdminRouter(opts: {
 
   r.delete("/api/users/:id", requireAdmin, async (req: Request, res: Response) => {
     await store.load();
-    const ok = await store.deleteUser(String(req.params.id ?? ""));
+    const ok = await store.deleteUser(String(req.params.id ?? "").trim());
     if (!ok) {
       res.status(404).json({ error: "Utilizador não encontrado." });
       return;
@@ -173,7 +225,7 @@ export function createHubAdminRouter(opts: {
       return;
     }
     await store.load();
-    const updated = await store.updateUser(String(req.params.id ?? ""), label);
+    const updated = await store.updateUser(String(req.params.id ?? "").trim(), label);
     if (!updated) {
       res.status(404).json({ error: "Utilizador não encontrado." });
       return;
@@ -186,7 +238,7 @@ export function createHubAdminRouter(opts: {
     requireAdmin,
     async (req: Request, res: Response) => {
       await store.load();
-      const uid = String(req.params.id ?? "");
+      const uid = String(req.params.id ?? "").trim();
       if (!store.getUserById(uid)) {
         res.status(404).json({ error: "Utilizador não encontrado." });
         return;
@@ -201,7 +253,7 @@ export function createHubAdminRouter(opts: {
     async (req: Request, res: Response) => {
       const body = parseJsonBody(req) as { label?: string };
       await store.load();
-      const uid = String(req.params.id ?? "");
+      const uid = String(req.params.id ?? "").trim();
       if (!store.getUserById(uid)) {
         res.status(404).json({ error: "Utilizador não encontrado." });
         return;
@@ -224,10 +276,11 @@ export function createHubAdminRouter(opts: {
     requireAdmin,
     async (req: Request, res: Response) => {
       await store.load();
-      const uid = String(req.params.id ?? "");
-      const tid = String(req.params.tid ?? "");
+      const uid = String(req.params.id ?? "").trim();
+      const tid = String(req.params.tid ?? "").trim();
+      const owner = store.getUserById(uid);
       const t = store.getTokenById(tid);
-      if (!t || t.userId !== uid) {
+      if (!owner || !t || t.userId !== owner.id) {
         res.status(404).json({ error: "Token não encontrado." });
         return;
       }
@@ -241,7 +294,7 @@ export function createHubAdminRouter(opts: {
     requireAdmin,
     async (req: Request, res: Response) => {
       await store.load();
-      const tid = String(req.params.tid ?? "");
+      const tid = String(req.params.tid ?? "").trim();
       if (!store.getTokenById(tid)) {
         res.status(404).json({ error: "Token não encontrado." });
         return;
@@ -264,7 +317,7 @@ export function createHubAdminRouter(opts: {
         connection?: HubConnectionOverrides;
       };
       await store.load();
-      const tid = String(req.params.tid ?? "");
+      const tid = String(req.params.tid ?? "").trim();
       if (!store.getTokenById(tid)) {
         res.status(404).json({ error: "Token não encontrado." });
         return;
@@ -318,10 +371,11 @@ export function createHubAdminRouter(opts: {
         connection?: HubConnectionOverrides;
       };
       await store.load();
-      const tid = String(req.params.tid ?? "");
-      const mid = String(req.params.mid ?? "");
+      const tid = String(req.params.tid ?? "").trim();
+      const mid = String(req.params.mid ?? "").trim();
+      const tok = store.getTokenById(tid);
       const existing = store.getMcpById(mid);
-      if (!existing || existing.tokenId !== tid) {
+      if (!existing || !tok || existing.tokenId !== tok.id) {
         res.status(404).json({ error: "MCP não encontrado." });
         return;
       }
@@ -365,10 +419,11 @@ export function createHubAdminRouter(opts: {
     requireAdmin,
     async (req: Request, res: Response) => {
       await store.load();
-      const tid = String(req.params.tid ?? "");
-      const mid = String(req.params.mid ?? "");
+      const tid = String(req.params.tid ?? "").trim();
+      const mid = String(req.params.mid ?? "").trim();
+      const tok = store.getTokenById(tid);
       const existing = store.getMcpById(mid);
-      if (!existing || existing.tokenId !== tid) {
+      if (!existing || !tok || existing.tokenId !== tok.id) {
         res.status(404).json({ error: "MCP não encontrado." });
         return;
       }

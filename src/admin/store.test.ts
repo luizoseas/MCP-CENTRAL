@@ -65,6 +65,36 @@ describe("HubUserStore", () => {
     }
   });
 
+  it("getUserById aceita UUID com maiúsculas/minúsculas diferentes", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "hub-store-uuid-"));
+    const filePath = join(dir, "hub-users.json");
+    try {
+      await writeFile(
+        filePath,
+        JSON.stringify({
+          schemaVersion: 2,
+          users: [
+            {
+              id: "4769ccb0-3515-4ceb-b58e-d42dd7d08f93",
+              label: "Teste",
+              createdAt: "2020-01-01T00:00:00.000Z",
+            },
+          ],
+          api_tokens: [],
+          token_mcps: [],
+        }),
+        "utf8",
+      );
+      const store = new HubUserStore(filePath);
+      await store.load();
+      const u = store.getUserById("4769CCB0-3515-4CEB-B58E-D42DD7D08F93");
+      assert.ok(u);
+      assert.equal(u!.label, "Teste");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   it("migra ficheiro v1 ao carregar e grava v2", async () => {
     const dir = await mkdtemp(join(tmpdir(), "hub-mig-"));
     const filePath = join(dir, "hub-users.json");
