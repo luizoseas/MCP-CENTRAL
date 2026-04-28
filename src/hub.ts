@@ -22,6 +22,10 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import express, { type Request, type Response } from "express";
 import { z } from "zod";
+import {
+  closeMongoHubPersistence,
+  isMongoPersistenceEnabled,
+} from "./admin/mongoHubPersistence.js";
 import { createHubAdminRouter } from "./admin/router.js";
 import { getMcpRegistryStore } from "./admin/mcpRegistryStore.js";
 import { HubUserStore } from "./admin/store.js";
@@ -1134,14 +1138,17 @@ async function serveHttp() {
   );
 
   app.get(`${basePath}/health`, (_req: Request, res: Response) => {
+    const mongo = isMongoPersistenceEnabled();
     res.json({
       ok: true,
       service: "mcp-hub",
       transport: "streamable-http",
       hubAdmin: "/hub-admin",
       hubAdminLoginEnabled: hubAdminEnabled,
-      mcpRegistry:
-        "Registo NoSQL em disco (mcp_servers + mcp_templates): MCP_HUB_MCP_REGISTRY_FILE; mescla servidores com mcp-hub.config.json.",
+      mcpRegistry: mongo
+        ? "Registo + utilizadores/tokens/MCPs em MongoDB (MCP_HUB_MONGODB_URI); mescla mcp-hub.config.json."
+        : "Registo NoSQL em disco (mcp_servers + mcp_templates): MCP_HUB_MCP_REGISTRY_FILE; mescla com mcp-hub.config.json.",
+      persistence: mongo ? "mongodb" : "file",
       hubUserToken:
         "Opcional: cabeçalho X-MCP-Hub-User-Token = secret de um API token (vários por utilizador na UI admin). Só MCPs directos por URL: o filtro de módulo WMS/TAR não se aplica a esse token.",
       eshipAuth:
@@ -1487,6 +1494,7 @@ async function serveHttp() {
   });
 
   const shutdown = async () => {
+    await closeMongoHubPersistence();
     for (const sid of [...sessions.keys()]) {
       await disposeSession(sid);
     }

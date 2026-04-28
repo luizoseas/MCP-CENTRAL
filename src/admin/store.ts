@@ -1,7 +1,13 @@
 import { readFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { randomBytes, randomUUID } from "node:crypto";
-import { persistJsonFile } from "./persistJsonFile.js";
+import {
+  isMongoPersistenceEnabled,
+  mongoLoadHubUsersState,
+  mongoSaveHubUsersState,
+  mongoUsersStateLabel,
+} from "./mongoHubPersistence.js";
+import { writeJsonToFile } from "./writeJsonFile.js";
 import type {
   ApiTokenRecord,
   HubConnectionOverrides,
@@ -95,23 +101,49 @@ function defaultUsersPath(): string {
 
 export class HubUserStore {
   private readonly filePath: string;
+  private readonly useMongo: boolean;
   private data: HubUsersFile = emptyV2();
   private loaded = false;
 
   constructor(filePath?: string) {
+    this.useMongo = isMongoPersistenceEnabled();
     this.filePath = filePath ?? defaultUsersPath();
   }
 
   getDataPath(): string {
-    return this.filePath;
+    return this.useMongo ? mongoUsersStateLabel() : this.filePath;
   }
 
   private async persist(): Promise<void> {
-    await persistJsonFile(this.filePath, this.data);
+    if (this.useMongo) {
+      await mongoSaveHubUsersState(this.data);
+      return;
+    }
+    await writeJsonToFile(this.filePath, this.data);
   }
 
   async load(): Promise<void> {
     if (this.loaded) {
+      return;
+    }
+    if (this.useMongo) {
+      const parsed: unknown = await mongoLoadHubUsersState();
+      if (isV2(parsed)) {
+        this.data = {
+          schemaVersion: 2,
+          users: parsed.users,
+          api_tokens: parsed.api_tokens,
+          token_mcps: parsed.token_mcps,
+        };
+      } else if (isV1Shape(parsed)) {
+        this.data = migrateV1ToV2(parsed);
+        this.loaded = true;
+        await this.persist();
+        return;
+      } else {
+        this.data = emptyV2();
+      }
+      this.loaded = true;
       return;
     }
     try {

@@ -11,6 +11,7 @@ import {
   signAdminSession,
   verifyAdminSession,
 } from "./session.js";
+import { isMongoPersistenceEnabled, mongoCollectionName, mongoDbName } from "./mongoHubPersistence.js";
 import type { HubConnectionOverrides } from "./types.js";
 
 const SESSION_MS = 8 * 60 * 60 * 1000;
@@ -516,11 +517,21 @@ export function createHubAdminRouter(opts: {
   });
 
   r.get("/api/config", requireAdmin, (_req: Request, res: Response) => {
+    const mongo = isMongoPersistenceEnabled();
     res.json({
       usersFile: store.getDataPath(),
       mcpRegistryFile: registry.getFilePath(),
       mcpHttpPath,
-      nosql: "Coleção mcp_servers em JSON (substituível por MongoDB).",
+      persistence: mongo ? "mongodb" : "file",
+      ...(mongo ?
+        {
+          mongoDb: mongoDbName(),
+          mongoCollection: mongoCollectionName(),
+        }
+      : {}),
+      nosql: mongo
+        ? "MongoDB: utilizadores + tokens + MCPs e registo (mcp_servers / mcp_templates) em documentos na coleção indicada."
+        : "Coleção mcp_servers + mcp_templates em ficheiro JSON (defina MCP_HUB_MONGODB_URI para MongoDB).",
       hint:
         "Cliente MCP: X-MCP-Hub-User-Token = secret de API token. Templates admin (mcp_templates): utilizador preenche connection.headers sobre a definição base.",
     });

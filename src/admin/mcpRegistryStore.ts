@@ -1,7 +1,13 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
-import { persistJsonFile } from "./persistJsonFile.js";
+import {
+  isMongoPersistenceEnabled,
+  mongoLoadRegistryState,
+  mongoSaveRegistryState,
+  mongoRegistryStateLabel,
+} from "./mongoHubPersistence.js";
+import { writeJsonToFile } from "./writeJsonFile.js";
 
 /**
  * Documento na "coleção" mcp_servers (ficheiro JSON — substituível por MongoDB, etc.).
@@ -34,7 +40,7 @@ export type McpTemplateDocument = {
   updatedAt: string;
 };
 
-type RegistryFile = {
+export type RegistryFile = {
   /** Nome de coleção estilo NoSQL */
   mcp_servers: McpServerDocument[];
   mcp_templates?: McpTemplateDocument[];
@@ -61,57 +67,73 @@ export function getMcpRegistryStore(): McpRegistryStore {
 
 export class McpRegistryStore {
   private readonly filePath: string;
+  private readonly useMongo: boolean;
   private data: RegistryFile = { mcp_servers: [] };
   private loaded = false;
 
   constructor(filePath?: string) {
+    this.useMongo = isMongoPersistenceEnabled();
     this.filePath = filePath ?? defaultRegistryPath();
   }
 
   getFilePath(): string {
-    return this.filePath;
+    return this.useMongo ? mongoRegistryStateLabel() : this.filePath;
+  }
+
+  private applyParsedRegistry(parsed: unknown): void {
+    if (
+      parsed &&
+      typeof parsed === "object" &&
+      "mcp_servers" in parsed &&
+      Array.isArray((parsed as RegistryFile).mcp_servers)
+    ) {
+      const p = parsed as RegistryFile;
+      const templatesRaw = Array.isArray(p.mcp_templates)
+        ? p.mcp_templates
+        : [];
+      this.data = {
+        mcp_servers: p.mcp_servers.filter(
+          (d): d is McpServerDocument =>
+            d != null &&
+            typeof d === "object" &&
+            typeof (d as McpServerDocument)._id === "string" &&
+            typeof (d as McpServerDocument).key === "string",
+        ),
+        mcp_templates: templatesRaw.filter(
+          (d): d is McpTemplateDocument =>
+            d != null &&
+            typeof d === "object" &&
+            typeof (d as McpTemplateDocument)._id === "string" &&
+            typeof (d as McpTemplateDocument).key === "string",
+        ),
+      };
+    } else {
+      this.data = structuredClone(empty);
+    }
   }
 
   private async persist(): Promise<void> {
-    await persistJsonFile(this.filePath, this.data);
+    if (this.useMongo) {
+      await mongoSaveRegistryState(this.data);
+      return;
+    }
+    await writeJsonToFile(this.filePath, this.data);
   }
 
   async load(): Promise<void> {
     if (this.loaded) {
       return;
     }
+    if (this.useMongo) {
+      const parsed: unknown = await mongoLoadRegistryState();
+      this.applyParsedRegistry(parsed);
+      this.loaded = true;
+      return;
+    }
     try {
       const raw = await readFile(this.filePath, "utf8");
       const parsed = JSON.parse(raw) as unknown;
-      if (
-        parsed &&
-        typeof parsed === "object" &&
-        "mcp_servers" in parsed &&
-        Array.isArray((parsed as RegistryFile).mcp_servers)
-      ) {
-        const p = parsed as RegistryFile;
-        const templatesRaw = Array.isArray(p.mcp_templates)
-          ? p.mcp_templates
-          : [];
-        this.data = {
-          mcp_servers: p.mcp_servers.filter(
-            (d): d is McpServerDocument =>
-              d != null &&
-              typeof d === "object" &&
-              typeof (d as McpServerDocument)._id === "string" &&
-              typeof (d as McpServerDocument).key === "string",
-          ),
-          mcp_templates: templatesRaw.filter(
-            (d): d is McpTemplateDocument =>
-              d != null &&
-              typeof d === "object" &&
-              typeof (d as McpTemplateDocument)._id === "string" &&
-              typeof (d as McpTemplateDocument).key === "string",
-          ),
-        };
-      } else {
-        this.data = structuredClone(empty);
-      }
+      this.applyParsedRegistry(parsed);
     } catch (e: unknown) {
       const code = (e as NodeJS.ErrnoException).code;
       if (code === "ENOENT") {
