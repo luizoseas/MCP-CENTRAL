@@ -4,10 +4,8 @@ const $ = (id) => document.getElementById(id);
 /** Secret mostrado uma vez após criar token (evita perder o banner com re-render). */
 let pendingNewKeySecret = null;
 
-/** Última resposta de GET /api/config (caminho MCP, ficheiros, …). */
+/** Última resposta de GET /api/config (caminho MCP, …). */
 let hubConfig = {
-  usersFile: "",
-  mcpRegistryFile: "",
   mcpHttpPath: "/mcp",
 };
 
@@ -107,14 +105,9 @@ function navMark() {
 async function loadConfig() {
   try {
     const j = await api("/config");
-    hubConfig.usersFile = j.usersFile || "";
-    hubConfig.mcpRegistryFile = j.mcpRegistryFile || "";
     hubConfig.mcpHttpPath = typeof j.mcpHttpPath === "string" && j.mcpHttpPath ? j.mcpHttpPath : "/mcp";
-    $("dataPath").textContent = hubConfig.usersFile;
-    $("registryPath").textContent = hubConfig.mcpRegistryFile;
   } catch {
-    $("dataPath").textContent = "?";
-    $("registryPath").textContent = "?";
+    hubConfig.mcpHttpPath = "/mcp";
   }
 }
 
@@ -1202,7 +1195,7 @@ async function applyLoginUiMode() {
       userIn?.setAttribute("required", "required");
       if (lead) {
         lead.textContent =
-          "Utilizador e palavra-passe do domínio (LDAP). O utilizador tem de existir na base configurada no hub.";
+          "Utilizador e palavra-passe do domínio (LDAP). O nome «admin» (reservado) usa a palavra-passe local definida no hub (MCP_HUB_ADMIN_PASSWORD).";
       }
     } else {
       wrap?.classList.add("hidden");

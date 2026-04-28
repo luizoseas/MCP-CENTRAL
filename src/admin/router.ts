@@ -19,6 +19,9 @@ import {
   type HubLdapOptions,
 } from "./ldapAuth.js";
 
+/** Com LDAP activo, este nome inicia sessão com MCP_HUB_ADMIN_PASSWORD (conta local), sem consultar o AD. */
+const RESERVED_LOCAL_ADMIN_USER = "admin";
+
 const SESSION_MS = 8 * 60 * 60 * 1000;
 
 function adminPublicDir(): string {
@@ -127,10 +130,33 @@ export function createHubAdminRouter(opts: {
           res.status(400).json({ error: "Indica a palavra-passe." });
           return;
         }
-        const ok = await verifyLdapUserPassword(ldapOptions, username, pw);
-        if (!ok) {
-          res.status(401).json({ error: "Credenciais inválidas." });
-          return;
+        const isLocalAdmin =
+          username.toLowerCase() === RESERVED_LOCAL_ADMIN_USER;
+        if (isLocalAdmin) {
+          if (!adminPassword) {
+            res.status(400).json({
+              error:
+                "A conta reservada «admin» usa a palavra-passe local (MCP_HUB_ADMIN_PASSWORD), mas essa variável não está definida.",
+            });
+            return;
+          }
+          if (!timingSafeEqualStr(adminPassword, pw)) {
+            res.status(401).json({
+              error: "Palavra-passe inválida para a conta local «admin».",
+            });
+            return;
+          }
+        } else {
+          const ldapResult = await verifyLdapUserPassword(
+            ldapOptions,
+            username,
+            pw,
+          );
+          if (!ldapResult.ok) {
+            const code = ldapResult.statusCode ?? 401;
+            res.status(code).json({ error: ldapResult.error });
+            return;
+          }
         }
       } else {
         if (!timingSafeEqualStr(adminPassword, pw)) {
@@ -144,7 +170,12 @@ export function createHubAdminRouter(opts: {
       return;
     }
 
-    const displayName = loginMode === "ldap" ? username : "Admin";
+    const displayName =
+      loginMode === "ldap"
+        ? username.toLowerCase() === RESERVED_LOCAL_ADMIN_USER
+          ? "Admin"
+          : username
+        : "Admin";
     const token = signAdminSession(sessionSecret, SESSION_MS, displayName);
     const maxAgeSec = Math.floor(SESSION_MS / 1000);
     res.setHeader(
