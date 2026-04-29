@@ -1,7 +1,7 @@
 /**
  * MCP Hub: agrega vários servidores MCP (stdio para Cursor ou HTTP Streamable MCP).
  */
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -683,9 +683,24 @@ function log(...args: unknown[]) {
   console.error("[mcp-hub]", ...args);
 }
 
-function hubToolName(serverKey: string, upstreamName: string): string {
+/** Limite do Claude para nomes de tools remotas (~64); margem de 60 no hub. */
+export const HUB_EXPOSED_TOOL_NAME_MAX_LEN = 60;
+
+/**
+ * Nome exposto no hub: `SERVIDOR__ferramenta` (só [a-zA-Z0-9_-]).
+ * Se exceder 60 caracteres, trunca e acrescenta `_` + hash (8 hex) para reduzir colisões.
+ */
+export function hubToolName(serverKey: string, upstreamName: string): string {
   const safe = (s: string) => s.replace(/[^a-zA-Z0-9_-]/g, "_");
-  return `${safe(serverKey)}__${safe(upstreamName)}`;
+  const full = `${safe(serverKey)}__${safe(upstreamName)}`;
+  const max = HUB_EXPOSED_TOOL_NAME_MAX_LEN;
+  if (full.length <= max) {
+    return full;
+  }
+  const h = createHash("sha256").update(full, "utf8").digest("hex").slice(0, 8);
+  const sep = "_";
+  const maxBase = max - sep.length - h.length;
+  return `${full.slice(0, Math.max(0, maxBase))}${sep}${h}`;
 }
 
 async function loadFileHubConfig(): Promise<HubConfig> {
@@ -769,7 +784,7 @@ export function buildHubMcpServer(upstreams: Upstream[]): McpServer {
       instructions: [
         "Este hub expõe apenas ferramentas (Tools) agregadas de vários servidores MCP.",
         "Não há prompts nem resources neste hub — no Cursor só a secção Tools mostrará entradas.",
-        "Cada nome é prefixado como SERVIDOR__ferramenta. Usa mcp_hub__meta para o mapa completo.",
+        "Cada nome é prefixado como SERVIDOR__ferramenta (máx. 60 caracteres; nomes longos ganham sufixo _HASH). Usa mcp_hub__meta para o mapa completo.",
         "e-ship (HTTP): X-Eship-Api-Key-WMS / X-Eship-Api-Key-TAR (chaves por módulo) ou X-Eship-Api-Key; URL base X-Eship-Api-Base-Url / X-Api-Base-Url. API-WMS/APIKEY-TAR = só um módulo. _meta: eshipApiKeyWms, eshipApiKeyTar, eshipApiBaseUrl. stdio: env.",
         "X-MCP-Hub-User-Token: secret de API token (painel admin); MCPs só por URL directa ignoram o filtro WMS/TAR.",
       ].join("\n"),
