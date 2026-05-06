@@ -73,7 +73,13 @@ async function api(path, opts = {}) {
     ...opts,
   });
   const j = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(j.error || r.statusText);
+  if (!r.ok) {
+    const msg = String(j.error || r.statusText || "Erro");
+    const code = typeof j.code === "string" ? ` [${j.code}]` : "";
+    const id = typeof j.errorId === "string" ? ` [${j.errorId}]` : "";
+    const detail = typeof j.detail === "string" && j.detail ? ` — ${j.detail}` : "";
+    throw new Error(`${msg}${code}${id}${detail}`);
+  }
   return j;
 }
 
@@ -299,8 +305,45 @@ async function renderInicio(view) {
         <a class="card-link" href="#/catalogo"><strong>Catálogo MCP</strong>Entradas <code>mcp_servers</code> no registo JSON.</a>
         <a class="card-link" href="#/api-keys"><strong>API keys</strong>Criar e revogar tokens por utilizador.</a>
         <a class="card-link" href="#/mcps"><strong>MCPs por API key</strong>Ligar MCPs a um token e editar variáveis.</a>
+        <a class="card-link" href="#/assistente"><strong>Relatório p/ assistente</strong>Gera texto para colares no Cursor e pedir análise ou correcções.</a>
+        <a class="card-link" href="#/logs"><strong>Logs do sistema</strong>Ver falhas do painel e da conexão aos MCPs com código e ID único.</a>
       </div>
     </div>`;
+}
+
+async function renderSystemLogs(view) {
+  const j = await api("/system-logs?limit=250");
+  const entries = Array.isArray(j.entries) ? j.entries : [];
+  view.innerHTML = `
+    <div class="panel">
+      <h3 class="section-title">Logs do sistema</h3>
+      <p class="section-lead">Cada falha retorna <code>code</code> + <code>errorId</code>. Use ambos para rastrear no painel e no backend.</p>
+      <div class="btn-row"><button type="button" id="btnReloadLogs">Actualizar</button></div>
+      <div class="data-table-wrap">
+        <table class="data-table">
+          <thead><tr><th>Hora</th><th>Nível</th><th>Origem</th><th>Código</th><th>ID</th><th>Mensagem</th><th>Detalhe</th></tr></thead>
+          <tbody>
+            ${entries
+              .map(
+                (x) => `
+              <tr>
+                <td><code>${esc(x.ts || "")}</code></td>
+                <td>${esc(x.level || "")}</td>
+                <td>${esc(x.source || "")}</td>
+                <td><code>${esc(x.code || "")}</code></td>
+                <td><code>${esc(x.id || "")}</code></td>
+                <td>${esc(x.message || "")}</td>
+                <td><code>${esc(x.detail || "")}</code></td>
+              </tr>`,
+              )
+              .join("") || '<tr><td colspan="7" class="sub">Sem logs ainda.</td></tr>'}
+          </tbody>
+        </table>
+      </div>
+    </div>`;
+  $("btnReloadLogs")?.addEventListener("click", () => {
+    void render();
+  });
 }
 
 async function renderClientes(view) {
@@ -1096,6 +1139,7 @@ function viewTitleForRoute(route) {
     catalogo: "Catálogo MCP",
     "api-keys": "API keys",
     mcps: "MCPs por API key",
+    logs: "Logs do sistema",
     clientes: "Ligar Cursor / Claude",
     "user-edit": "Editar utilizador",
     "template-edit": "Editar template",
@@ -1148,6 +1192,9 @@ async function render() {
         break;
       case "mcp-edit":
         await renderMcpEdit(view, route.tokenId, route.mcpId);
+        break;
+      case "logs":
+        await renderSystemLogs(view);
         break;
       default:
         if ((location.hash || "").replace(/^#\/?/, "") !== "inicio") {

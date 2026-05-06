@@ -25,6 +25,11 @@ export type HubLdapDirectOptions = {
   url: string;
   /** Deve conter `{{username}}` (excepto quando o login já é UPN/DN completo). */
   userBindIdentityTemplate: string;
+  /** Base para pesquisa de grupos/atributos do utilizador após directBind. */
+  userSearchBase: string;
+  /** Filtro para localizar o utilizador e ler memberOf. Deve conter `{{username}}`. */
+  userFilter: string;
+  searchScope: "base" | "one" | "sub" | "children" | "subordinates";
   connectTimeoutMs: number;
   tlsRejectUnauthorized: boolean;
 };
@@ -32,7 +37,7 @@ export type HubLdapDirectOptions = {
 export type HubLdapOptions = HubLdapServiceOptions | HubLdapDirectOptions;
 
 export type LdapVerifyResult =
-  | { ok: true }
+  | { ok: true; groups: string[] }
   | { ok: false; error: string; statusCode?: number };
 
 /** Opções comuns à ligação TCP/TLS. */
@@ -150,6 +155,17 @@ function describeLdapOrNetworkError(err: unknown, phase: string): string {
   return `Erro desconhecido (${phase}).`;
 }
 
+function memberOfValues(entry: Record<string, unknown>): string[] {
+  const raw = entry.memberOf;
+  if (typeof raw === "string") {
+    return [raw];
+  }
+  if (Array.isArray(raw)) {
+    return raw.filter((v): v is string => typeof v === "string");
+  }
+  return [];
+}
+
 /** Resolve identidade para simple bind (UPN, DN ou modelo com {{username}}). */
 export function resolveDirectBindIdentity(
   template: string,
@@ -205,8 +221,46 @@ export async function verifyLdapUserPassword(
     const client = new Client(clientOptions(opts));
     try {
       await client.bind(identity, pw);
+      if (!opts.userFilter.includes("{{username}}")) {
+        await safeUnbind(client);
+        return {
+          ok: false,
+          error:
+            "Configuração LDAP: MCP_HUB_LDAP_USER_FILTER tem de incluir o marcador {{username}} para validar grupos.",
+          statusCode: 500,
+        };
+      }
+      const filter = opts.userFilter.replace(
+        /\{\{username\}\}/g,
+        escapeLdapFilterValue(user),
+      );
+      const { searchEntries } = await client.search(opts.userSearchBase, {
+        scope: opts.searchScope,
+        filter,
+        sizeLimit: 5,
+        attributes: ["dn", "memberOf"],
+      });
+      if (searchEntries.length === 0) {
+        await safeUnbind(client);
+        return {
+          ok: false,
+          error:
+            "LDAP: utilizador autenticou, mas não foi encontrado na pesquisa de grupos (MCP_HUB_LDAP_USER_SEARCH_BASE / MCP_HUB_LDAP_USER_FILTER).",
+          statusCode: 403,
+        };
+      }
+      if (searchEntries.length > 1) {
+        await safeUnbind(client);
+        return {
+          ok: false,
+          error:
+            "LDAP: pesquisa de grupos devolveu várias entradas (ambiguidade). Ajusta MCP_HUB_LDAP_USER_FILTER ou a base de pesquisa.",
+          statusCode: 500,
+        };
+      }
+      const groups = memberOfValues(searchEntries[0] as Record<string, unknown>);
       await safeUnbind(client);
-      return { ok: true };
+      return { ok: true, groups };
     } catch (err) {
       await safeUnbind(client);
       if (err instanceof InvalidCredentialsError || isLdapResultCodeError(err)) {
@@ -255,7 +309,7 @@ export async function verifyLdapUserPassword(
       scope: opts.searchScope,
       filter,
       sizeLimit: 5,
-      attributes: ["dn"],
+      attributes: ["dn", "memberOf"],
     });
     await safeUnbind(service);
     if (searchEntries.length === 0) {
@@ -275,32 +329,32 @@ export async function verifyLdapUserPassword(
       };
     }
     userDn = searchEntries[0]!.dn;
+    const groups = memberOfValues(searchEntries[0] as Record<string, unknown>);
+    const userClient = new Client(clientOptions(opts));
+    try {
+      await userClient.bind(userDn!, pw);
+      await safeUnbind(userClient);
+      return { ok: true, groups };
+    } catch (err) {
+      await safeUnbind(userClient);
+      if (err instanceof InvalidCredentialsError || isLdapResultCodeError(err)) {
+        return {
+          ok: false,
+          error: describeLdapOrNetworkError(err, "userBind"),
+          statusCode: 401,
+        };
+      }
+      return {
+        ok: false,
+        error: describeLdapOrNetworkError(err, "autenticacaoUtilizador"),
+        statusCode: 503,
+      };
+    }
   } catch (err) {
     await safeUnbind(service);
     return {
       ok: false,
       error: describeLdapOrNetworkError(err, "pesquisa"),
-      statusCode: 503,
-    };
-  }
-
-  const userClient = new Client(clientOptions(opts));
-  try {
-    await userClient.bind(userDn!, pw);
-    await safeUnbind(userClient);
-    return { ok: true };
-  } catch (err) {
-    await safeUnbind(userClient);
-    if (err instanceof InvalidCredentialsError || isLdapResultCodeError(err)) {
-      return {
-        ok: false,
-        error: describeLdapOrNetworkError(err, "userBind"),
-        statusCode: 401,
-      };
-    }
-    return {
-      ok: false,
-      error: describeLdapOrNetworkError(err, "autenticacaoUtilizador"),
       statusCode: 503,
     };
   }

@@ -10,7 +10,7 @@ import {
   parseAdminSession,
   readAdminCookie,
   signAdminSession,
-  verifyAdminSession,
+  type HubAdminRole,
 } from "./session.js";
 import { isMongoPersistenceEnabled, mongoCollectionName, mongoDbName } from "./mongoHubPersistence.js";
 import type { HubConnectionOverrides } from "./types.js";
@@ -18,11 +18,16 @@ import {
   verifyLdapUserPassword,
   type HubLdapOptions,
 } from "./ldapAuth.js";
+import { getSystemLogs, pushSystemLog } from "../systemLog.js";
 
 /** Com LDAP activo, este nome inicia sessão com MCP_HUB_ADMIN_PASSWORD (conta local), sem consultar o AD. */
 const RESERVED_LOCAL_ADMIN_USER = "admin";
+const AD_GROUP_ADMIN = "administrator";
+const AD_GROUP_LIDERANCA = "lideranca";
 
 const SESSION_MS = 8 * 60 * 60 * 1000;
+
+type AdminSessionData = { displayName: string; role: HubAdminRole };
 
 function adminPublicDir(): string {
   return join(dirname(fileURLToPath(import.meta.url)), "../../public/hub-admin");
@@ -33,6 +38,56 @@ function parseJsonBody(req: Request): unknown {
     return req.body;
   }
   return {};
+}
+
+function sendPanelError(
+  res: Response,
+  status: number,
+  code: string,
+  message: string,
+  cause?: unknown,
+): void {
+  const logged = pushSystemLog({
+    level: "error",
+    source: "panel",
+    code,
+    message,
+    cause,
+  });
+  res.status(status).json({
+    error: message,
+    code,
+    errorId: logged.id,
+    detail: logged.detail,
+  });
+}
+
+function adGroupTokens(groupDnOrName: string): string[] {
+  const g = groupDnOrName.trim();
+  if (!g) {
+    return [];
+  }
+  const out = [g.toLowerCase()];
+  for (const piece of g.split(",")) {
+    const p = piece.trim();
+    if (/^cn=/i.test(p)) {
+      out.push(p.slice(3).trim().toLowerCase());
+    }
+  }
+  return [...new Set(out)];
+}
+
+function ldapRoleFromGroups(groups: string[]): HubAdminRole | null {
+  const tokens = new Set(
+    groups.flatMap((g) => adGroupTokens(g)).map((x) => x.toLowerCase()),
+  );
+  if (tokens.has(AD_GROUP_ADMIN)) {
+    return "admin";
+  }
+  if (tokens.has(AD_GROUP_LIDERANCA)) {
+    return "lideranca";
+  }
+  return null;
 }
 
 const ADMIN_NOT_CONFIGURED_MSG =
@@ -86,14 +141,47 @@ export function createHubAdminRouter(opts: {
     });
   };
 
+  const currentSession = (req: Request): AdminSessionData | null => {
+    const tok = readAdminCookie(req);
+    const sess = tok ? parseAdminSession(sessionSecret, tok) : null;
+    if (!sess) {
+      return null;
+    }
+    return { displayName: sess.sub, role: sess.role };
+  };
+
   const requireAdmin = (req: Request, res: Response, next: () => void) => {
     if (!hubAdminEnabled) {
       adminNotReady(req, res);
       return;
     }
-    const tok = readAdminCookie(req);
-    if (!tok || !verifyAdminSession(sessionSecret, tok)) {
-      res.status(401).json({ error: "Não autenticado." });
+    const sess = currentSession(req);
+    if (!sess) {
+      sendPanelError(res, 401, "AUTH_REQUIRED", "Não autenticado.");
+      return;
+    }
+    res.locals.adminRole = sess.role;
+    res.locals.adminDisplayName = sess.displayName;
+    next();
+  };
+
+  const requireDeletePermission = (
+    req: Request,
+    res: Response,
+    next: () => void,
+  ) => {
+    const sess = currentSession(req);
+    if (!sess) {
+      sendPanelError(res, 401, "AUTH_REQUIRED", "Não autenticado.");
+      return;
+    }
+    if (sess.role !== "admin") {
+      sendPanelError(
+        res,
+        403,
+        "DELETE_FORBIDDEN",
+        "Sem permissão para excluir. Apenas membros do grupo AD Administrator podem apagar.",
+      );
       return;
     }
     next();
@@ -115,37 +203,49 @@ export function createHubAdminRouter(opts: {
     const body = parseJsonBody(req) as { password?: string; username?: string };
     const pw = String(body.password ?? "");
     const username = String(body.username ?? "").trim();
+    let role: HubAdminRole = "admin";
 
     try {
       if (loginMode === "ldap") {
         if (!ldapOptions) {
-          res.status(500).json({ error: "LDAP não está configurado no servidor." });
+          sendPanelError(
+            res,
+            500,
+            "LDAP_CONFIG_MISSING",
+            "LDAP não está configurado no servidor.",
+          );
           return;
         }
         if (!username) {
-          res.status(400).json({ error: "Indica o utilizador." });
+          sendPanelError(res, 400, "LOGIN_USERNAME_REQUIRED", "Indica o utilizador.");
           return;
         }
         if (!pw) {
-          res.status(400).json({ error: "Indica a palavra-passe." });
+          sendPanelError(res, 400, "LOGIN_PASSWORD_REQUIRED", "Indica a palavra-passe.");
           return;
         }
         const isLocalAdmin =
           username.toLowerCase() === RESERVED_LOCAL_ADMIN_USER;
         if (isLocalAdmin) {
           if (!adminPassword) {
-            res.status(400).json({
-              error:
-                "A conta reservada «admin» usa a palavra-passe local (MCP_HUB_ADMIN_PASSWORD), mas essa variável não está definida.",
-            });
+            sendPanelError(
+              res,
+              400,
+              "LOCAL_ADMIN_PASSWORD_MISSING",
+              "A conta reservada «admin» usa a palavra-passe local (MCP_HUB_ADMIN_PASSWORD), mas essa variável não está definida.",
+            );
             return;
           }
           if (!timingSafeEqualStr(adminPassword, pw)) {
-            res.status(401).json({
-              error: "Palavra-passe inválida para a conta local «admin».",
-            });
+            sendPanelError(
+              res,
+              401,
+              "LOCAL_ADMIN_PASSWORD_INVALID",
+              "Palavra-passe inválida para a conta local «admin».",
+            );
             return;
           }
+          role = "admin";
         } else {
           const ldapResult = await verifyLdapUserPassword(
             ldapOptions,
@@ -154,19 +254,31 @@ export function createHubAdminRouter(opts: {
           );
           if (!ldapResult.ok) {
             const code = ldapResult.statusCode ?? 401;
-            res.status(code).json({ error: ldapResult.error });
+            sendPanelError(res, code, "LDAP_AUTH_FAILED", ldapResult.error);
             return;
           }
+          const ldapRole = ldapRoleFromGroups(ldapResult.groups);
+          if (!ldapRole) {
+            sendPanelError(
+              res,
+              403,
+              "LDAP_GROUP_FORBIDDEN",
+              "Utilizador autenticado no AD, mas sem autorização no painel. Requer grupo Administrator ou Lideranca.",
+            );
+            return;
+          }
+          role = ldapRole;
         }
       } else {
         if (!timingSafeEqualStr(adminPassword, pw)) {
-          res.status(401).json({ error: "Palavra-passe inválida." });
+          sendPanelError(res, 401, "PASSWORD_INVALID", "Palavra-passe inválida.");
           return;
         }
+        role = "admin";
       }
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
-      res.status(500).json({ error: msg });
+      sendPanelError(res, 500, "LOGIN_INTERNAL_ERROR", msg, e);
       return;
     }
 
@@ -176,13 +288,13 @@ export function createHubAdminRouter(opts: {
           ? "Admin"
           : username
         : "Admin";
-    const token = signAdminSession(sessionSecret, SESSION_MS, displayName);
+    const token = signAdminSession(sessionSecret, SESSION_MS, displayName, role);
     const maxAgeSec = Math.floor(SESSION_MS / 1000);
     res.setHeader(
       "Set-Cookie",
       `${adminCookieName()}=${encodeURIComponent(token)}; HttpOnly; Path=/hub-admin; SameSite=Lax; Max-Age=${maxAgeSec}`,
     );
-    res.json({ ok: true, displayName });
+    res.json({ ok: true, displayName, role });
   });
 
   r.post("/api/logout", (_req: Request, res: Response) => {
@@ -209,6 +321,8 @@ export function createHubAdminRouter(opts: {
       admin: true,
       configured: true,
       displayName: sess.sub,
+      role: sess.role,
+      canDelete: sess.role === "admin",
     });
   });
 
@@ -234,15 +348,15 @@ export function createHubAdminRouter(opts: {
       res.status(201).json({ user });
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
-      res.status(500).json({ error: msg });
+      sendPanelError(res, 500, "USERS_CREATE_ERROR", msg, e);
     }
   });
 
-  r.delete("/api/users/:id", requireAdmin, async (req: Request, res: Response) => {
+  r.delete("/api/users/:id", requireAdmin, requireDeletePermission, async (req: Request, res: Response) => {
     await store.load();
     const ok = await store.deleteUser(String(req.params.id ?? "").trim());
     if (!ok) {
-      res.status(404).json({ error: "Utilizador não encontrado." });
+      sendPanelError(res, 404, "USER_NOT_FOUND", "Utilizador não encontrado.");
       return;
     }
     res.json({ ok: true });
@@ -252,13 +366,13 @@ export function createHubAdminRouter(opts: {
     const body = parseJsonBody(req) as { label?: string };
     const label = String(body.label ?? "").trim();
     if (!label) {
-      res.status(400).json({ error: "Campo label é obrigatório." });
+      sendPanelError(res, 400, "LABEL_REQUIRED", "Campo label é obrigatório.");
       return;
     }
     await store.load();
     const updated = await store.updateUser(String(req.params.id ?? "").trim(), label);
     if (!updated) {
-      res.status(404).json({ error: "Utilizador não encontrado." });
+      sendPanelError(res, 404, "USER_NOT_FOUND", "Utilizador não encontrado.");
       return;
     }
     res.json({ user: updated });
@@ -271,7 +385,7 @@ export function createHubAdminRouter(opts: {
       await store.load();
       const uid = String(req.params.id ?? "").trim();
       if (!store.getUserById(uid)) {
-        res.status(404).json({ error: "Utilizador não encontrado." });
+        sendPanelError(res, 404, "USER_NOT_FOUND", "Utilizador não encontrado.");
         return;
       }
       res.json({ tokens: store.listTokensForUser(uid) });
@@ -286,7 +400,7 @@ export function createHubAdminRouter(opts: {
       await store.load();
       const uid = String(req.params.id ?? "").trim();
       if (!store.getUserById(uid)) {
-        res.status(404).json({ error: "Utilizador não encontrado." });
+        sendPanelError(res, 404, "USER_NOT_FOUND", "Utilizador não encontrado.");
         return;
       }
       try {
@@ -297,7 +411,7 @@ export function createHubAdminRouter(opts: {
         res.status(201).json({ token, secret });
       } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : String(e);
-        res.status(400).json({ error: msg });
+        sendPanelError(res, 400, "TOKEN_CREATE_ERROR", msg, e);
       }
     },
   );
@@ -305,6 +419,7 @@ export function createHubAdminRouter(opts: {
   r.delete(
     "/api/users/:id/tokens/:tid",
     requireAdmin,
+    requireDeletePermission,
     async (req: Request, res: Response) => {
       await store.load();
       const uid = String(req.params.id ?? "").trim();
@@ -312,7 +427,7 @@ export function createHubAdminRouter(opts: {
       const owner = store.getUserById(uid);
       const t = store.getTokenById(tid);
       if (!owner || !t || t.userId !== owner.id) {
-        res.status(404).json({ error: "Token não encontrado." });
+        sendPanelError(res, 404, "TOKEN_NOT_FOUND", "Token não encontrado.");
         return;
       }
       await store.deleteToken(tid);
@@ -327,7 +442,7 @@ export function createHubAdminRouter(opts: {
       await store.load();
       const tid = String(req.params.tid ?? "").trim();
       if (!store.getTokenById(tid)) {
-        res.status(404).json({ error: "Token não encontrado." });
+        sendPanelError(res, 404, "TOKEN_NOT_FOUND", "Token não encontrado.");
         return;
       }
       res.json({ mcps: store.mcpsForToken(tid) });
@@ -350,15 +465,18 @@ export function createHubAdminRouter(opts: {
       await store.load();
       const tid = String(req.params.tid ?? "").trim();
       if (!store.getTokenById(tid)) {
-        res.status(404).json({ error: "Token não encontrado." });
+        sendPanelError(res, 404, "TOKEN_NOT_FOUND", "Token não encontrado.");
         return;
       }
       if (body.templateServerKey?.trim()) {
         const keys = await getMergedServerKeys();
         if (!keys.includes(body.templateServerKey.trim())) {
-          res
-            .status(400)
-            .json({ error: "templateServerKey inválido ou não existe no hub." });
+          sendPanelError(
+            res,
+            400,
+            "TEMPLATE_SERVER_KEY_INVALID",
+            "templateServerKey inválido ou não existe no hub.",
+          );
           return;
         }
       }
@@ -366,7 +484,12 @@ export function createHubAdminRouter(opts: {
         await registry.load();
         const doc = await registry.getTemplateById(body.templateId.trim());
         if (!doc) {
-          res.status(400).json({ error: "templateId inválido (template admin inexistente)." });
+          sendPanelError(
+            res,
+            400,
+            "TEMPLATE_ID_INVALID",
+            "templateId inválido (template admin inexistente).",
+          );
           return;
         }
       }
@@ -383,7 +506,7 @@ export function createHubAdminRouter(opts: {
         res.status(201).json({ mcp });
       } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : String(e);
-        res.status(400).json({ error: msg });
+        sendPanelError(res, 400, "MCP_CREATE_ERROR", msg, e);
       }
     },
   );
@@ -407,15 +530,18 @@ export function createHubAdminRouter(opts: {
       const tok = store.getTokenById(tid);
       const existing = store.getMcpById(mid);
       if (!existing || !tok || existing.tokenId !== tok.id) {
-        res.status(404).json({ error: "MCP não encontrado." });
+        sendPanelError(res, 404, "MCP_NOT_FOUND", "MCP não encontrado.");
         return;
       }
       if (body.templateServerKey !== undefined && body.templateServerKey.trim()) {
         const keys = await getMergedServerKeys();
         if (!keys.includes(body.templateServerKey.trim())) {
-          res
-            .status(400)
-            .json({ error: "templateServerKey inválido ou não existe no hub." });
+          sendPanelError(
+            res,
+            400,
+            "TEMPLATE_SERVER_KEY_INVALID",
+            "templateServerKey inválido ou não existe no hub.",
+          );
           return;
         }
       }
@@ -423,7 +549,12 @@ export function createHubAdminRouter(opts: {
         await registry.load();
         const doc = await registry.getTemplateById(body.templateId.trim());
         if (!doc) {
-          res.status(400).json({ error: "templateId inválido (template admin inexistente)." });
+          sendPanelError(
+            res,
+            400,
+            "TEMPLATE_ID_INVALID",
+            "templateId inválido (template admin inexistente).",
+          );
           return;
         }
       }
@@ -440,7 +571,7 @@ export function createHubAdminRouter(opts: {
         res.json({ mcp });
       } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : String(e);
-        res.status(400).json({ error: msg });
+        sendPanelError(res, 400, "MCP_UPDATE_ERROR", msg, e);
       }
     },
   );
@@ -448,6 +579,7 @@ export function createHubAdminRouter(opts: {
   r.delete(
     "/api/tokens/:tid/mcps/:mid",
     requireAdmin,
+    requireDeletePermission,
     async (req: Request, res: Response) => {
       await store.load();
       const tid = String(req.params.tid ?? "").trim();
@@ -455,7 +587,7 @@ export function createHubAdminRouter(opts: {
       const tok = store.getTokenById(tid);
       const existing = store.getMcpById(mid);
       if (!existing || !tok || existing.tokenId !== tok.id) {
-        res.status(404).json({ error: "MCP não encontrado." });
+        sendPanelError(res, 404, "MCP_NOT_FOUND", "MCP não encontrado.");
         return;
       }
       await store.deleteMcp(mid);
@@ -479,7 +611,12 @@ export function createHubAdminRouter(opts: {
     };
     try {
       if (body.def === undefined) {
-        res.status(400).json({ error: "Campo def (JSON do servidor MCP base) é obrigatório." });
+        sendPanelError(
+          res,
+          400,
+          "TEMPLATE_DEF_REQUIRED",
+          "Campo def (JSON do servidor MCP base) é obrigatório.",
+        );
         return;
       }
       parseServerDef(body.def);
@@ -493,7 +630,7 @@ export function createHubAdminRouter(opts: {
       res.status(201).json({ template: doc });
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
-      res.status(400).json({ error: msg });
+      sendPanelError(res, 400, "TEMPLATE_CREATE_ERROR", msg, e);
     }
   });
 
@@ -517,21 +654,21 @@ export function createHubAdminRouter(opts: {
         accessHeaderKeys: body.accessHeaderKeys,
       });
       if (!updated) {
-        res.status(404).json({ error: "Template não encontrado." });
+        sendPanelError(res, 404, "TEMPLATE_NOT_FOUND", "Template não encontrado.");
         return;
       }
       res.json({ template: updated });
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
-      res.status(400).json({ error: msg });
+      sendPanelError(res, 400, "TEMPLATE_UPDATE_ERROR", msg, e);
     }
   });
 
-  r.delete("/api/mcp-templates/:id", requireAdmin, async (req: Request, res: Response) => {
+  r.delete("/api/mcp-templates/:id", requireAdmin, requireDeletePermission, async (req: Request, res: Response) => {
     await registry.load();
     const ok = await registry.deleteTemplateById(String(req.params.id ?? ""));
     if (!ok) {
-      res.status(404).json({ error: "Template não encontrado." });
+      sendPanelError(res, 404, "TEMPLATE_NOT_FOUND", "Template não encontrado.");
       return;
     }
     res.json({ ok: true });
@@ -551,7 +688,12 @@ export function createHubAdminRouter(opts: {
     };
     try {
       if (body.def === undefined) {
-        res.status(400).json({ error: "Campo def (JSON do servidor MCP) é obrigatório." });
+        sendPanelError(
+          res,
+          400,
+          "REGISTRY_DEF_REQUIRED",
+          "Campo def (JSON do servidor MCP) é obrigatório.",
+        );
         return;
       }
       parseServerDef(body.def);
@@ -563,7 +705,7 @@ export function createHubAdminRouter(opts: {
       res.status(201).json({ document: doc });
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
-      res.status(400).json({ error: msg });
+      sendPanelError(res, 400, "REGISTRY_CREATE_ERROR", msg, e);
     }
   });
 
@@ -583,20 +725,20 @@ export function createHubAdminRouter(opts: {
         def: body.def,
       });
       if (!updated) {
-        res.status(404).json({ error: "Documento não encontrado." });
+        sendPanelError(res, 404, "REGISTRY_DOC_NOT_FOUND", "Documento não encontrado.");
         return;
       }
       res.json({ document: updated });
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
-      res.status(400).json({ error: msg });
+      sendPanelError(res, 400, "REGISTRY_UPDATE_ERROR", msg, e);
     }
   });
 
-  r.delete("/api/mcp-registry/:id", requireAdmin, async (req: Request, res: Response) => {
+  r.delete("/api/mcp-registry/:id", requireAdmin, requireDeletePermission, async (req: Request, res: Response) => {
     const ok = await registry.deleteById(String(req.params.id ?? ""));
     if (!ok) {
-      res.status(404).json({ error: "Documento não encontrado." });
+      sendPanelError(res, 404, "REGISTRY_DOC_NOT_FOUND", "Documento não encontrado.");
       return;
     }
     res.json({ ok: true });
@@ -621,6 +763,12 @@ export function createHubAdminRouter(opts: {
       hint:
         "Cliente MCP: X-MCP-Hub-User-Token = secret de API token. Templates admin (mcp_templates): utilizador preenche connection.headers sobre a definição base.",
     });
+  });
+
+  r.get("/api/system-logs", requireAdmin, (req: Request, res: Response) => {
+    const raw = Number(req.query.limit ?? "200");
+    const limit = Number.isFinite(raw) ? Math.max(1, Math.min(500, raw)) : 200;
+    res.json({ entries: getSystemLogs(limit) });
   });
 
   r.get("/app.js", async (_req: Request, res: Response) => {

@@ -33,6 +33,7 @@ import {
   type HubLdapOptions,
   type HubLdapServiceOptions,
 } from "./admin/ldapAuth.js";
+import { pushSystemLog } from "./systemLog.js";
 import { HubUserStore } from "./admin/store.js";
 import type { HubConnectionOverrides, TokenMcpRecord } from "./admin/types.js";
 
@@ -866,6 +867,13 @@ export async function connectAllUpstreams(
       def = expandServerDef(rawDef, mergedEnv);
     } catch (e: unknown) {
       log(`Upstream "${key}": expansão de variáveis falhou:`, e);
+      pushSystemLog({
+        level: "error",
+        source: "mcp",
+        code: "MCP_EXPAND_ENV_FAILED",
+        message: `Falha ao expandir variáveis do upstream "${key}".`,
+        cause: e,
+      });
       for (const u of upstreams) {
         await u.client.close().catch(() => {});
         await u.transport.close().catch(() => {});
@@ -910,6 +918,13 @@ export async function connectAllUpstreams(
       await client.connect(transport);
     } catch (e) {
       log(`Upstream "${key}" não conectou:`, e);
+      pushSystemLog({
+        level: "error",
+        source: "mcp",
+        code: "MCP_UPSTREAM_CONNECT_FAILED",
+        message: `Falha ao conectar no upstream "${key}".`,
+        cause: e,
+      });
       await transport.close().catch(() => {});
       for (const u of upstreams) {
         await u.client.close().catch(() => {});
@@ -925,6 +940,12 @@ export async function connectAllUpstreams(
     }
     upstreams.push({ key, client, transport, tools });
     log(`Conectado "${key}": ${toolList.length} ferramenta(s).`);
+    pushSystemLog({
+      level: "info",
+      source: "mcp",
+      code: "MCP_UPSTREAM_CONNECTED",
+      message: `Conectado "${key}" com ${toolList.length} ferramenta(s).`,
+    });
   }
 
   return upstreams;
@@ -1012,6 +1033,9 @@ function buildHubLdapOptions(): HubLdapOptions | null {
     process.env.MCP_HUB_LDAP_BASE_DN?.trim() ||
     userSearchBase ||
     "";
+  const directUserFilter =
+    process.env.MCP_HUB_LDAP_USER_FILTER?.trim() ||
+    "(|(sAMAccountName={{username}})(userPrincipalName={{username}}))";
   const explicitTemplate = process.env.MCP_HUB_LDAP_USER_DN_TEMPLATE?.trim();
   let userBindIdentityTemplate = explicitTemplate;
   if (!userBindIdentityTemplate && baseDn) {
@@ -1023,10 +1047,16 @@ function buildHubLdapOptions(): HubLdapOptions | null {
   if (!userBindIdentityTemplate?.includes("{{username}}")) {
     return null;
   }
+  if (!baseDn) {
+    return null;
+  }
   return {
     authMode: "direct",
     ...conn,
     userBindIdentityTemplate,
+    userSearchBase: baseDn,
+    userFilter: directUserFilter,
+    searchScope: readLdapSearchScope(),
   };
 }
 
@@ -1288,6 +1318,32 @@ async function serveHttp() {
     }
   }
 
+  function sendJsonRpcError(
+    res: Response,
+    httpStatus: number,
+    rpcId: unknown,
+    rpcCode: number,
+    code: string,
+    message: string,
+    cause?: unknown,
+  ) {
+    const logged = pushSystemLog({
+      level: "error",
+      source: "mcp",
+      code,
+      message,
+      cause,
+    });
+    res.status(httpStatus).json({
+      jsonrpc: "2.0",
+      error: {
+        code: rpcCode,
+        message: `${message} [${code}] [${logged.id}]`,
+      },
+      id: rpcId,
+    });
+  }
+
   const mcpPost = async (req: Request, res: Response) => {
     const sessionId = req.headers["mcp-session-id"] as string | undefined;
     const rpcId = (() => {
@@ -1307,14 +1363,15 @@ async function serveHttp() {
           const msg = e instanceof Error ? e.message : String(e);
           log("initialize: credenciais / módulo inválidos:", e);
           if (!res.headersSent) {
-            res.status(400).json({
-              jsonrpc: "2.0",
-              error: {
-                code: -32_602,
-                message: msg,
-              },
-              id: rpcId,
-            });
+            sendJsonRpcError(
+              res,
+              400,
+              rpcId,
+              -32_602,
+              "MCP_INIT_CREDENTIALS_INVALID",
+              msg,
+              e,
+            );
           }
           return;
         }
@@ -1327,15 +1384,14 @@ async function serveHttp() {
         );
         if (!resolvedCfg.ok) {
           if (!res.headersSent) {
-            res.status(resolvedCfg.httpStatus).json({
-              jsonrpc: "2.0",
-              error: {
-                code:
-                  resolvedCfg.httpStatus === 401 ? -32_601 : -32_602,
-                message: resolvedCfg.message,
-              },
-              id: rpcId,
-            });
+            sendJsonRpcError(
+              res,
+              resolvedCfg.httpStatus,
+              rpcId,
+              resolvedCfg.httpStatus === 401 ? -32_601 : -32_602,
+              "MCP_INIT_CONFIG_RESOLVE_FAILED",
+              resolvedCfg.message,
+            );
           }
           return;
         }
@@ -1356,14 +1412,15 @@ async function serveHttp() {
           const msg = e instanceof Error ? e.message : String(e);
           log("initialize: env / credenciais e-ship incompletos:", e);
           if (!res.headersSent) {
-            res.status(401).json({
-              jsonrpc: "2.0",
-              error: {
-                code: -32_001,
-                message: msg,
-              },
-              id: rpcId,
-            });
+            sendJsonRpcError(
+              res,
+              401,
+              rpcId,
+              -32_001,
+              "MCP_INIT_UPSTREAM_CONNECTION_FAILED",
+              msg,
+              e,
+            );
           }
           return;
         }
@@ -1406,25 +1463,29 @@ async function serveHttp() {
         }
         return;
       } else {
-        res.status(400).json({
-          jsonrpc: "2.0",
-          error: {
-            code: -32_000,
-            message: "Pedido inválido: falta mcp-session-id ou não é initialize.",
-          },
-          id: rpcId,
-        });
+        sendJsonRpcError(
+          res,
+          400,
+          rpcId,
+          -32_000,
+          "MCP_INVALID_REQUEST",
+          "Pedido inválido: falta mcp-session-id ou não é initialize.",
+        );
         return;
       }
       await transport.handleRequest(req, res, req.body);
     } catch (e) {
       log("Erro MCP POST:", e);
       if (!res.headersSent) {
-        res.status(500).json({
-          jsonrpc: "2.0",
-          error: { code: -32_603, message: "Internal server error" },
-          id: rpcId,
-        });
+        sendJsonRpcError(
+          res,
+          500,
+          rpcId,
+          -32_603,
+          "MCP_POST_INTERNAL_ERROR",
+          "Internal server error",
+          e,
+        );
       }
     }
   };

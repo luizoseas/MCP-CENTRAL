@@ -1,12 +1,16 @@
-import { createHmac, timingSafeEqual } from "node:crypto";
+﻿import { createHmac, timingSafeEqual } from "node:crypto";
 
 const COOKIE = "mcp_hub_admin";
+
+export type HubAdminRole = "admin" | "lideranca";
 
 export type AdminSessionPayload = {
   exp: number;
   v: number;
   /** Nome mostrado no painel (login LDAP ou "Admin" para login por palavra-passe). */
   sub: string;
+  /** Papel no painel admin: admin (total) ou lideranca (sem DELETE). */
+  role: HubAdminRole;
 };
 
 export function adminCookieName(): string {
@@ -17,16 +21,20 @@ export function signAdminSession(
   secret: string,
   maxAgeMs: number,
   displayName: string,
+  role: HubAdminRole,
 ): string {
   const exp = Date.now() + maxAgeMs;
   const sub = displayName.trim() || "Admin";
-  const payload = JSON.stringify({ exp, v: 1, sub });
+  const payload = JSON.stringify({ exp, v: 1, sub, role });
   const b64 = Buffer.from(payload, "utf8").toString("base64url");
   const sig = createHmac("sha256", secret).update(b64).digest("base64url");
   return `${b64}.${sig}`;
 }
 
-/** Valida assinatura e prazo; devolve o payload ou null. Sessões antigas sem `sub` tratam-se como "Admin". */
+/**
+ * Valida assinatura e prazo; devolve o payload ou null.
+ * Sessões antigas sem `sub`/`role` tratam-se como Admin.
+ */
 export function parseAdminSession(
   secret: string,
   token: string,
@@ -47,12 +55,13 @@ export function parseAdminSession(
   } catch {
     return null;
   }
-  let parsed: { exp?: number; v?: number; sub?: string };
+  let parsed: { exp?: number; v?: number; sub?: string; role?: string };
   try {
     parsed = JSON.parse(Buffer.from(b64, "base64url").toString("utf8")) as {
       exp?: number;
       v?: number;
       sub?: string;
+      role?: string;
     };
   } catch {
     return null;
@@ -64,7 +73,14 @@ export function parseAdminSession(
     typeof parsed.sub === "string" && parsed.sub.trim()
       ? parsed.sub.trim()
       : "Admin";
-  return { exp: parsed.exp, v: typeof parsed.v === "number" ? parsed.v : 1, sub };
+  const role: HubAdminRole =
+    parsed.role === "lideranca" ? "lideranca" : "admin";
+  return {
+    exp: parsed.exp,
+    v: typeof parsed.v === "number" ? parsed.v : 1,
+    sub,
+    role,
+  };
 }
 
 export function verifyAdminSession(secret: string, token: string): boolean {
