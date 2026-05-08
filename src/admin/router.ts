@@ -257,17 +257,7 @@ export function createHubAdminRouter(opts: {
             sendPanelError(res, code, "LDAP_AUTH_FAILED", ldapResult.error);
             return;
           }
-          const ldapRole = ldapRoleFromGroups(ldapResult.groups);
-          if (!ldapRole) {
-            sendPanelError(
-              res,
-              403,
-              "LDAP_GROUP_FORBIDDEN",
-              "Utilizador autenticado no AD, mas sem autorização no painel. Requer grupo Administrator ou Lideranca.",
-            );
-            return;
-          }
-          role = ldapRole;
+          role = ldapRoleFromGroups(ldapResult.groups) ?? "lideranca";
         }
       } else {
         if (!timingSafeEqualStr(adminPassword, pw)) {

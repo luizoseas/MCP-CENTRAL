@@ -11,7 +11,10 @@ import {
   StdioClientTransport,
   getDefaultEnvironment,
 } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { createMcpExpressApp } from "@modelcontextprotocol/sdk/server/express.js";
+import {
+  hostHeaderValidation,
+  localhostHostValidation,
+} from "@modelcontextprotocol/sdk/server/middleware/hostHeaderValidation.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
@@ -684,17 +687,34 @@ function log(...args: unknown[]) {
   console.error("[mcp-hub]", ...args);
 }
 
-/** Limite do Claude para nomes de tools remotas (~64); margem de 60 no hub. */
-export const HUB_EXPOSED_TOOL_NAME_MAX_LEN = 60;
+/** MCP SDK (SEP) permite até 128; clientes antigos costumam ~64. Predefinição: 60; aumentar com MCP_HUB_TOOL_NAME_MAX_LEN. */
+function readHubExposedToolNameMaxLenFromEnv(): number {
+  const raw = process.env.MCP_HUB_TOOL_NAME_MAX_LEN?.trim();
+  if (raw === undefined || raw === "") {
+    return 60;
+  }
+  const n = Number(raw);
+  if (!Number.isFinite(n)) {
+    return 60;
+  }
+  return Math.min(128, Math.max(32, Math.floor(n)));
+}
+
+export const HUB_EXPOSED_TOOL_NAME_MAX_LEN = readHubExposedToolNameMaxLenFromEnv();
 
 /**
  * Nome exposto no hub: `SERVIDOR__ferramenta` (só [a-zA-Z0-9_-]).
- * Se exceder 60 caracteres, trunca e acrescenta `_` + hash (8 hex) para reduzir colisões.
+ * Se exceder o limite, trunca e acrescenta `_` + hash (8 hex) para reduzir colisões.
+ * @param maxLen — opcional (testes); caso contrário usa {@link HUB_EXPOSED_TOOL_NAME_MAX_LEN}.
  */
-export function hubToolName(serverKey: string, upstreamName: string): string {
+export function hubToolName(
+  serverKey: string,
+  upstreamName: string,
+  maxLen: number = HUB_EXPOSED_TOOL_NAME_MAX_LEN,
+): string {
   const safe = (s: string) => s.replace(/[^a-zA-Z0-9_-]/g, "_");
   const full = `${safe(serverKey)}__${safe(upstreamName)}`;
-  const max = HUB_EXPOSED_TOOL_NAME_MAX_LEN;
+  const max = maxLen;
   if (full.length <= max) {
     return full;
   }
@@ -702,6 +722,41 @@ export function hubToolName(serverKey: string, upstreamName: string): string {
   const sep = "_";
   const maxBase = max - sep.length - h.length;
   return `${full.slice(0, Math.max(0, maxBase))}${sep}${h}`;
+}
+
+/**
+ * Evita colisões entre servidores/tools distintos que mapeiam para o mesmo texto
+ * (ex.: servidor `a` + tool `b__c` vs servidor `a__b` + tool `c`).
+ */
+export function allocateUniqueHubToolName(
+  serverKey: string,
+  upstreamToolName: string,
+  usedExposedNames: Set<string>,
+): string {
+  for (let attempt = 0; attempt < 256; attempt++) {
+    const logical =
+      attempt === 0
+        ? upstreamToolName
+        : `${upstreamToolName}__hubuniq${attempt}`;
+    const candidate = hubToolName(serverKey, logical);
+    if (!usedExposedNames.has(candidate)) {
+      usedExposedNames.add(candidate);
+      return candidate;
+    }
+  }
+  for (let i = 0; i < 16; i++) {
+    const candidate = hubToolName(
+      serverKey,
+      `${upstreamToolName}__${randomUUID().replace(/-/g, "").slice(0, 16)}`,
+    );
+    if (!usedExposedNames.has(candidate)) {
+      usedExposedNames.add(candidate);
+      return candidate;
+    }
+  }
+  throw new Error(
+    `Impossível gerar nome único para tool "${upstreamToolName}" no servidor "${serverKey}".`,
+  );
 }
 
 async function loadFileHubConfig(): Promise<HubConfig> {
@@ -785,7 +840,7 @@ export function buildHubMcpServer(upstreams: Upstream[]): McpServer {
       instructions: [
         "Este hub expõe apenas ferramentas (Tools) agregadas de vários servidores MCP.",
         "Não há prompts nem resources neste hub — no Cursor só a secção Tools mostrará entradas.",
-        "Cada nome é prefixado como SERVIDOR__ferramenta (máx. 60 caracteres; nomes longos ganham sufixo _HASH). Usa mcp_hub__meta para o mapa completo.",
+        `Cada nome é prefixado como SERVIDOR__ferramenta (máx. ${HUB_EXPOSED_TOOL_NAME_MAX_LEN} caracteres com MCP_HUB_TOOL_NAME_MAX_LEN; nomes longos ganham sufixo _HASH). Usa mcp_hub__meta para o mapa completo.`,
         "e-ship (HTTP): X-Eship-Api-Key-WMS / X-Eship-Api-Key-TAR (chaves por módulo) ou X-Eship-Api-Key; URL base X-Eship-Api-Base-Url / X-Api-Base-Url. API-WMS/APIKEY-TAR = só um módulo. _meta: eshipApiKeyWms, eshipApiKeyTar, eshipApiBaseUrl. stdio: env.",
         "X-MCP-Hub-User-Token: secret de API token (painel admin); MCPs só por URL directa ignoram o filtro WMS/TAR.",
       ].join("\n"),
@@ -856,6 +911,7 @@ export async function connectAllUpstreams(
   }
 
   const upstreams: Upstream[] = [];
+  const usedHubToolNames = new Set<string>();
 
   for (const [key, rawDef] of entries) {
     let def: ServerDef;
@@ -936,7 +992,8 @@ export async function connectAllUpstreams(
     const toolList = await listAllTools(client);
     const tools = new Map<string, string>();
     for (const t of toolList) {
-      tools.set(hubToolName(key, t.name), t.name);
+      const exposed = allocateUniqueHubToolName(key, t.name, usedHubToolNames);
+      tools.set(exposed, t.name);
     }
     upstreams.push({ key, client, transport, tools });
     log(`Conectado "${key}": ${toolList.length} ferramenta(s).`);
@@ -1060,6 +1117,35 @@ function buildHubLdapOptions(): HubLdapOptions | null {
   };
 }
 
+/**
+ * Como `createMcpExpressApp` do SDK `@modelcontextprotocol/sdk/server/express`, mas com
+ * limite configurável no JSON body. O SDK usa `express.json()` por omissão (~100kb),
+ * o que quebra pedidos MCP maiores ("request entity too large" / Request body is too large).
+ */
+function createHubExpressApp(
+  options: { host: string; allowedHosts?: string[] },
+  jsonBodyLimit: string,
+): express.Express {
+  const { host, allowedHosts } = options;
+  const app = express();
+  app.use(express.json({ limit: jsonBodyLimit }));
+  if (allowedHosts) {
+    app.use(hostHeaderValidation(allowedHosts));
+  } else {
+    const localhostHosts = ["127.0.0.1", "localhost", "::1"];
+    if (localhostHosts.includes(host)) {
+      app.use(localhostHostValidation());
+    } else if (host === "0.0.0.0" || host === "::") {
+      // eslint-disable-next-line no-console
+      console.warn(
+        `Warning: Server is binding to ${host} without DNS rebinding protection. ` +
+          "Consider using MCP_HUB_ALLOWED_HOSTS or authentication.",
+      );
+    }
+  }
+  return app;
+}
+
 async function serveHttp() {
   const port = Number(process.env.MCP_HUB_HTTP_PORT ?? "3343");
   /** 0.0.0.0 = aceita ligações de qualquer IP na máquina (porta aberta no firewall). */
@@ -1067,6 +1153,9 @@ async function serveHttp() {
     process.env.MCP_HUB_HTTP_HOST?.trim() || "0.0.0.0";
   const basePath = (process.env.MCP_HUB_HTTP_PATH ?? "/mcp").replace(/\/$/, "") || "/mcp";
   const allowedHostsEnv = process.env.MCP_HUB_ALLOWED_HOSTS;
+  /** Express body-parser: ex. 10mb. Omissão 10mb (hub agrega ferramentas com payloads grandes). */
+  const jsonBodyLimit =
+    process.env.MCP_HUB_JSON_BODY_LIMIT?.trim() || "10mb";
 
   const expressOpts =
     allowedHostsEnv !== undefined && allowedHostsEnv.trim() !== ""
@@ -1076,7 +1165,7 @@ async function serveHttp() {
         }
       : { host: httpHost };
 
-  const app = createMcpExpressApp(expressOpts);
+  const app = createHubExpressApp(expressOpts, jsonBodyLimit);
 
   const trustProxy = process.env.MCP_HUB_TRUST_PROXY?.trim().toLowerCase();
   if (trustProxy === "1" || trustProxy === "true" || trustProxy === "yes") {
@@ -1649,6 +1738,7 @@ async function serveHttp() {
     log(
       `MCP em *:${port}${basePath} — Streamable HTTP + SSE legado (GET + /messages).`,
     );
+    log(`POST JSON body limit: ${jsonBodyLimit} (MCP_HUB_JSON_BODY_LIMIT)`);
     log(`Health: GET http://127.0.0.1:${port}${basePath}/health`);
   });
 
