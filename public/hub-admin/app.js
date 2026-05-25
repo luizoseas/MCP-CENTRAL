@@ -9,7 +9,7 @@ let hubConfig = {
   mcpHttpPath: "/mcp",
 };
 
-/** Modelo por defeito ao vincular MCP por template administrativo (substitui os valores de exemplo). */
+/** Modelo por padrão ao vincular MCP por template administrativo (substitui os valores de exemplo). */
 const MCP_ADMIN_ACCESS_JSON_DEFAULT = JSON.stringify(
   {
     headers: {
@@ -91,7 +91,7 @@ function tryNavigateMcpsPicker() {
   const v = pick.value.trim();
   if (!v) {
     if (errEl) {
-      errEl.textContent = "Escolhe uma API key na lista.";
+      errEl.textContent = "Escolha uma API key na lista.";
       errEl.classList.remove("hidden");
     }
     pick.focus();
@@ -110,9 +110,12 @@ function parseRoute() {
   let h = location.hash || "#/inicio";
   h = h.replace(/^#/, "");
   if (!h.startsWith("/")) h = "/" + h;
+  const qIdx = h.indexOf("?");
+  const qp = new URLSearchParams(qIdx >= 0 ? h.slice(qIdx + 1) : "");
+  if (qIdx >= 0) h = h.slice(0, qIdx);
   const parts = h.split("/").filter(Boolean);
   const name = parts[0] || "inicio";
-  const empty = { tokenId: null, mcpId: null, userId: null, templateId: null, docId: null };
+  const empty = { tokenId: null, mcpId: null, userId: null, templateId: null, docId: null, query: qp };
   const seg = (i) => (typeof parts[i] === "string" ? parts[i].trim() : "");
 
   if (name === "mcps" && seg(1)) {
@@ -121,7 +124,7 @@ function parseRoute() {
     }
     return { ...empty, name: "mcps", tokenId: seg(1) };
   }
-  if (name === "utilizadores" && seg(1) === "edit" && seg(2)) {
+  if (name === "usuarios" && seg(1) === "edit" && seg(2)) {
     return { ...empty, name: "user-edit", userId: seg(2) };
   }
   if (name === "templates" && seg(1) === "edit" && seg(2)) {
@@ -212,7 +215,7 @@ function wireMcpFormPanel(root, tokenId, servers, tplList, edit) {
     const h = opt ? opt.getAttribute("data-hint") : "";
     tplHint.textContent = h
       ? `Sugestão de cabeçalhos: ${h}`
-      : "Preenche os valores reais de API / URL no JSON abaixo.";
+      : "Preencha os valores reais de API / URL no JSON abaixo.";
   };
   tplSel.onchange = syncTplHint;
   syncTplHint();
@@ -253,7 +256,7 @@ function wireMcpFormPanel(root, tokenId, servers, tplList, edit) {
       } else {
         const templateId = tplSel.value.trim();
         if (!templateId) {
-          alert("Escolhe um template administrativo.");
+          alert("Escolha um template administrativo.");
           return;
         }
         const connection = parseAdminTemplateConnectionJson(
@@ -297,50 +300,152 @@ async function renderInicio(view) {
   await loadConfig();
   view.innerHTML = `
     <div class="panel">
-      <p class="section-lead">Escolhe uma secção na barra lateral. Os ficheiros de dados aparecem acima.</p>
+      <p class="section-lead">Escolha uma seção na barra lateral.</p>
       <div class="quick-grid cols-2">
-        <a class="card-link" href="#/clientes"><strong>Ligar Cursor / Claude</strong>Passo a passo com URL do hub e cabeçalho do token.</a>
-        <a class="card-link" href="#/utilizadores"><strong>Utilizadores</strong>Criar, editar etiqueta e apagar contas.</a>
+        <a class="card-link" href="#/clientes"><strong>Como conectar?</strong>Passo a passo com URL do hub e header do token.</a>
+        <a class="card-link" href="#/usuarios"><strong>Usuários</strong>Criar, editar etiqueta e apagar contas.</a>
         <a class="card-link" href="#/templates"><strong>Templates MCP</strong>Definições base e variáveis sugeridas.</a>
-        <a class="card-link" href="#/catalogo"><strong>Catálogo MCP</strong>Entradas <code>mcp_servers</code> no registo JSON.</a>
-        <a class="card-link" href="#/api-keys"><strong>API keys</strong>Criar e revogar tokens por utilizador.</a>
-        <a class="card-link" href="#/mcps"><strong>MCPs por API key</strong>Ligar MCPs a um token e editar variáveis.</a>
-        <a class="card-link" href="#/assistente"><strong>Relatório p/ assistente</strong>Gera texto para colares no Cursor e pedir análise ou correcções.</a>
+        <a class="card-link" href="#/catalogo"><strong>Catálogo MCP</strong>Entradas <code>mcp_servers</code> no registro JSON.</a>
+
+
+
         <a class="card-link" href="#/logs"><strong>Logs do sistema</strong>Ver falhas do painel e da conexão aos MCPs com código e ID único.</a>
       </div>
     </div>`;
 }
 
-async function renderSystemLogs(view) {
-  const j = await api("/system-logs?limit=250");
+async function renderSystemLogs(view, filterTokenId) {
+  const qs = filterTokenId
+    ? `/system-logs?limit=250&tokenId=${encodeURIComponent(filterTokenId)}`
+    : "/system-logs?limit=250";
+  const j = await api(qs);
   const entries = Array.isArray(j.entries) ? j.entries : [];
+
+  function formatTs(iso) {
+    if (!iso) return "";
+    try {
+      const d = new Date(iso);
+      const dd = String(d.getDate()).padStart(2, "0");
+      const mm = String(d.getMonth() + 1).padStart(2, "0");
+      const yy = d.getFullYear();
+      const hh = String(d.getHours()).padStart(2, "0");
+      const mi = String(d.getMinutes()).padStart(2, "0");
+      const ss = String(d.getSeconds()).padStart(2, "0");
+      return `${dd}/${mm}/${yy} ${hh}:${mi}:${ss}`;
+    } catch {
+      return iso;
+    }
+  }
+
+  function levelBadge(level) {
+    if (level === "error") return '<span class="log-badge log-badge--error">falha</span>';
+    if (level === "info") return '<span class="log-badge log-badge--info">sucesso</span>';
+    return `<span class="log-badge">${esc(level || "")}</span>`;
+  }
+
   view.innerHTML = `
     <div class="panel">
       <h3 class="section-title">Logs do sistema</h3>
+      ${filterTokenId
+        ? `<p class="feedback feedback--ok" style="margin-bottom:0.75rem;">Filtrado por API key <code>${esc(filterTokenId)}</code>. <a href="#/logs">Ver todos os logs</a> · <a href="#/api-keys">Voltar às API keys</a></p>`
+        : ""}
       <p class="section-lead">Cada falha retorna <code>code</code> + <code>errorId</code>. Use ambos para rastrear no painel e no backend.</p>
-      <div class="btn-row"><button type="button" id="btnReloadLogs">Actualizar</button></div>
+
+      <div class="log-filters">
+        <div class="log-filter-group">
+          <label for="logFilterLevel">Nível</label>
+          <select id="logFilterLevel">
+            <option value="">Todos</option>
+            <option value="error">Falha</option>
+            <option value="info">Sucesso</option>
+          </select>
+        </div>
+        <div class="log-filter-group log-filter-group--grow">
+          <label for="logFilterMsg">Mensagem</label>
+          <input type="text" id="logFilterMsg" placeholder="Pesquisar na mensagem ou detalhe…" />
+        </div>
+        <div class="log-filter-group">
+          <label for="logFilterFrom">De</label>
+          <input type="date" id="logFilterFrom" />
+        </div>
+        <div class="log-filter-group">
+          <label for="logFilterTo">Até</label>
+          <input type="date" id="logFilterTo" />
+        </div>
+        <div class="log-filter-group log-filter-group--actions">
+          <button type="button" id="btnClearFilters" class="secondary">Limpar</button>
+          <button type="button" id="btnReloadLogs">Atualizar</button>
+        </div>
+      </div>
+
+      <p class="sub" id="logCount" style="margin:0.5rem 0 0;"></p>
       <div class="data-table-wrap">
-        <table class="data-table">
+        <table class="data-table" id="logTable">
           <thead><tr><th>Hora</th><th>Nível</th><th>Origem</th><th>Código</th><th>ID</th><th>Mensagem</th><th>Detalhe</th></tr></thead>
-          <tbody>
-            ${entries
-              .map(
-                (x) => `
-              <tr>
-                <td><code>${esc(x.ts || "")}</code></td>
-                <td>${esc(x.level || "")}</td>
-                <td>${esc(x.source || "")}</td>
-                <td><code>${esc(x.code || "")}</code></td>
-                <td><code>${esc(x.id || "")}</code></td>
-                <td>${esc(x.message || "")}</td>
-                <td><code>${esc(x.detail || "")}</code></td>
-              </tr>`,
-              )
-              .join("") || '<tr><td colspan="7" class="sub">Sem logs ainda.</td></tr>'}
-          </tbody>
+          <tbody id="logTbody"></tbody>
         </table>
       </div>
     </div>`;
+
+  const allEntries = entries;
+
+  function applyFilters() {
+    const level = $("logFilterLevel").value;
+    const msg = ($("logFilterMsg").value || "").toLowerCase().trim();
+    const fromVal = $("logFilterFrom").value;
+    const toVal = $("logFilterTo").value;
+    const fromDate = fromVal ? new Date(fromVal + "T00:00:00") : null;
+    const toDate = toVal ? new Date(toVal + "T23:59:59.999") : null;
+
+    const filtered = allEntries.filter((x) => {
+      if (level && x.level !== level) return false;
+      if (msg) {
+        const haystack = `${x.message || ""} ${x.detail || ""} ${x.code || ""}`.toLowerCase();
+        if (!haystack.includes(msg)) return false;
+      }
+      if (fromDate || toDate) {
+        const ts = x.ts ? new Date(x.ts) : null;
+        if (!ts) return false;
+        if (fromDate && ts < fromDate) return false;
+        if (toDate && ts > toDate) return false;
+      }
+      return true;
+    });
+
+    const tbody = $("logTbody");
+    tbody.innerHTML = filtered
+      .map(
+        (x) => `
+      <tr>
+        <td><code>${esc(formatTs(x.ts))}</code></td>
+        <td>${levelBadge(x.level)}</td>
+        <td>${esc(x.source || "")}</td>
+        <td><code>${esc(x.code || "")}</code></td>
+        <td><code>${esc(x.id || "")}</code></td>
+        <td>${esc(x.message || "")}</td>
+        <td><code>${esc(x.detail || "")}</code></td>
+      </tr>`,
+      )
+      .join("") || '<tr><td colspan="7" class="sub">Nenhum log corresponde aos filtros.</td></tr>';
+
+    $("logCount").textContent = `${filtered.length} de ${allEntries.length} registros`;
+  }
+
+  applyFilters();
+
+  $("logFilterLevel").addEventListener("change", applyFilters);
+  $("logFilterMsg").addEventListener("input", applyFilters);
+  $("logFilterFrom").addEventListener("change", applyFilters);
+  $("logFilterTo").addEventListener("change", applyFilters);
+
+  $("btnClearFilters")?.addEventListener("click", () => {
+    $("logFilterLevel").value = "";
+    $("logFilterMsg").value = "";
+    $("logFilterFrom").value = "";
+    $("logFilterTo").value = "";
+    applyFilters();
+  });
+
   $("btnReloadLogs")?.addEventListener("click", () => {
     void render();
   });
@@ -379,46 +484,46 @@ async function renderClientes(view) {
   view.innerHTML = `
     <div class="panel">
       <p class="back-row"><a href="#/inicio">← Início</a></p>
-      <h3 class="section-title">Antes de ligar o cliente</h3>
+      <h3 class="section-title">Antes de conectar o cliente</h3>
       <ol class="guide-steps">
-        <li><strong>No painel:</strong> cria um <a href="#/utilizadores">utilizador</a>, uma <a href="#/api-keys">API key</a> e os <a href="#/mcps">MCPs</a> vinculados a essa key (catálogo, URL ou template).</li>
-        <li><strong>Copia o secret</strong> da API key quando a gerares — é o valor do cabeçalho <code>X-MCP-Hub-User-Token</code> (não confundir com a palavra-passe do admin do painel).</li>
+        <li><strong>No painel:</strong> crie um <a href="#/usuarios">usuário</a>, uma <a href="#/api-keys">API key</a> e os <a href="#/mcps">MCPs</a> vinculados a essa key (catálogo, URL ou template).</li>
+        <li><strong>Copie o secret</strong> da API key ao gerá-la — é o valor do header <code>X-MCP-Hub-User-Token</code> (não confundir com a senha do admin do painel).</li>
         <li><strong>URL do hub MCP</strong> neste servidor (origem desta página + caminho configurado):<br /><code class="pre-block" style="margin-top:0.5rem;">${esc(endpoint)}</code>
-          <span class="sub">O caminho do endpoint MCP é o configurado neste hub; o endereço acima reflecte a sessão actual.</span></li>
+          <span class="sub">O caminho do endpoint MCP é o configurado neste hub; o endereço acima reflete a sessão atual.</span></li>
       </ol>
     </div>
     <div class="panel">
       <h3 class="section-title">Cursor</h3>
       <ol class="guide-steps">
-        <li>Abre <strong>Cursor</strong> → <strong>Settings</strong> → <strong>MCP</strong> (ou edita o ficheiro de configuração MCP que o Cursor indicar na tua versão).</li>
-        <li>Adiciona um servidor <strong>HTTP / Streamable HTTP</strong> apontando para a URL acima.</li>
-        <li>Define o cabeçalho <code>X-MCP-Hub-User-Token</code> com o <strong>secret</strong> da API key.</li>
-        <li>Reinicia o MCP ou o Cursor se o cliente não listar ferramentas de imediato.</li>
+        <li>Abra <strong>Cursor</strong> → <strong>Settings</strong> → <strong>MCP</strong> (ou edite o arquivo de configuração MCP que o Cursor indicar na sua versão).</li>
+        <li>Adicione um servidor <strong>HTTP / Streamable HTTP</strong> apontando para a URL acima.</li>
+        <li>Defina o header <code>X-MCP-Hub-User-Token</code> com o <strong>secret</strong> da API key.</li>
+        <li>Reinicie o MCP ou o Cursor se o cliente não listar ferramentas imediatamente.</li>
       </ol>
-      <p class="section-lead" style="margin-top:1rem;">Exemplo de JSON (ajusta o nome <code>mcp-hub</code> se quiseres):</p>
+      <p class="section-lead" style="margin-top:1rem;">Exemplo de JSON (ajuste o nome <code>mcp-hub</code> se quiser):</p>
       <pre class="pre-block" id="cursorCfgBlock">${esc(JSON.stringify(cursorJson, null, 2))}</pre>
-      <p class="guide-note">Em redes internas, substitui o host por o IP ou DNS que o Cursor consegue alcançar (o mesmo que usas para abrir este painel, na porta HTTP do hub).</p>
+      <p class="guide-note">Em redes internas, substitua o host pelo IP ou DNS que o Cursor consegue alcançar (o mesmo que você usa para abrir este painel, na porta HTTP do hub).</p>
     </div>
     <div class="panel">
       <h3 class="section-title">Claude Desktop</h3>
       <ol class="guide-steps">
-        <li>Fecha o Claude Desktop antes de editar o ficheiro de configuração.</li>
-        <li>No <strong>macOS</strong>, abre <code>~/Library/Application Support/Claude/claude_desktop_config.json</code>. No <strong>Windows</strong>, o caminho costuma estar em <code>%APPDATA%\\Claude\\claude_desktop_config.json</code> (confirma na documentação Anthropic se mudar).</li>
-        <li>Em <code>mcpServers</code>, adiciona uma entrada que aponte para o hub. Duas formas comuns:</li>
+        <li>Feche o Claude Desktop antes de editar o arquivo de configuração.</li>
+        <li>No <strong>macOS</strong>, abra <code>~/Library/Application Support/Claude/claude_desktop_config.json</code>. No <strong>Windows</strong>, o caminho geralmente fica em <code>%APPDATA%\\Claude\\claude_desktop_config.json</code> (confirme na documentação Anthropic se mudar).</li>
+        <li>Em <code>mcpServers</code>, adicione uma entrada que aponte para o hub. Duas formas comuns:</li>
       </ol>
-      <p class="section-lead"><strong>A)</strong> Cliente HTTP nativo (se a tua build suportar URL + headers para MCP remoto):</p>
+      <p class="section-lead"><strong>A)</strong> Cliente HTTP nativo (se a sua build suportar URL + headers para MCP remoto):</p>
       <pre class="pre-block">${esc(JSON.stringify(cursorJson, null, 2))}</pre>
       <p class="section-lead" style="margin-top:1rem;"><strong>B)</strong> Via <code>mcp-remote</code> (útil quando o JSON do Claude só expõe <code>command</code>/<code>args</code>):</p>
       <pre class="pre-block">${esc(JSON.stringify(claudeJson, null, 2))}</pre>
-      <p class="guide-note">O pacote <code>mcp-remote</code> (npm) faz de ponte stdio → HTTP. No Windows, o Claude por vezes partim cabeçalhos com espaços nos <code>args</code>; por isso o token vai em <code>env</code> e o <code>--header</code> usa <code>\${HUB_USER_TOKEN}</code> sem espaços à volta do <code>:</code>. Se a tua versão do Claude aceitar URL + headers directamente, prefere a opção A.</p>
+      <p class="guide-note">O pacote <code>mcp-remote</code> (npm) faz ponte stdio → HTTP. No Windows, o Claude às vezes quebra headers com espaços nos <code>args</code>; por isso o token vai em <code>env</code> e o <code>--header</code> usa <code>\${HUB_USER_TOKEN}</code> sem espaços ao redor do <code>:</code>. Se a sua versão do Claude aceitar URL + headers diretamente, prefira a opção A.</p>
     </div>`;
 }
 
-async function renderUtilizadores(view) {
+async function renderUsuarios(view) {
   const { users } = await api("/users");
   view.innerHTML = `
     <div class="panel">
-      <h3 class="section-title">Novo utilizador</h3>
+      <h3 class="section-title">Novo usuário</h3>
       <form id="formCreateUser" class="row cols-2">
         <div>
           <label for="nuLabel">Etiqueta</label>
@@ -431,10 +536,10 @@ async function renderUtilizadores(view) {
       <p id="uErr" class="feedback feedback--err hidden" role="alert"></p>
     </div>
     <div class="panel">
-      <h3 class="section-title">Utilizadores</h3>
+      <h3 class="section-title">Usuários</h3>
       <div class="data-table-wrap">
         <table class="data-table">
-          <thead><tr><th>Etiqueta</th><th>ID</th><th>Criado</th><th>Acções</th></tr></thead>
+          <thead><tr><th>Etiqueta</th><th>ID</th><th>Criado</th><th>Ações</th></tr></thead>
           <tbody>
             ${users
               .map(
@@ -445,8 +550,9 @@ async function renderUtilizadores(view) {
                 <td>${esc(u.createdAt || "")}</td>
                 <td>
                   <div class="btn-row" style="margin:0;">
-                    <a class="btn-link secondary" href="#/utilizadores/edit/${esc(u.id)}">Editar</a>
-                    <button type="button" class="danger btn-del-u" data-id="${esc(u.id)}">Apagar</button>
+                    <a class="btn-link secondary" href="#/api-keys?user=${esc(u.id)}">Ver API keys</a>
+                    <a class="btn-link secondary" href="#/usuarios/edit/${esc(u.id)}">Editar</a>
+                    <button type="button" class="danger btn-del-u" data-id="${esc(u.id)}">Excluir</button>
                   </div>
                 </td>
               </tr>`,
@@ -476,7 +582,7 @@ async function renderUtilizadores(view) {
   view.querySelectorAll(".btn-del-u").forEach((btn) => {
     btn.addEventListener("click", async () => {
       const id = btn.getAttribute("data-id");
-      if (!confirm("Apagar utilizador e todos os tokens e MCPs?")) return;
+      if (!confirm("Excluir este usuário e todos os tokens e MCPs dele?")) return;
       try {
         await api(`/users/${id}`, { method: "DELETE" });
         await render();
@@ -491,19 +597,19 @@ async function renderUserEdit(view, userId) {
   const { users } = await api("/users");
   const u = (users || []).find((x) => sameEntityId(x.id, userId));
   if (!u) {
-    view.innerHTML = `<p class="feedback feedback--err">Utilizador não encontrado.</p><p class="back-row"><a href="#/utilizadores">← Utilizadores</a></p>`;
+    view.innerHTML = `<p class="feedback feedback--err">Usuário não encontrado.</p><p class="back-row"><a href="#/usuarios">← Usuários</a></p>`;
     return;
   }
   view.innerHTML = `
     <div class="panel">
-      <p class="back-row"><a href="#/utilizadores">← Utilizadores</a></p>
-      <h3 class="section-title">Editar utilizador</h3>
+      <p class="back-row"><a href="#/usuarios">← Usuários</a></p>
+      <h3 class="section-title">Editar usuário</h3>
       <p class="sub">ID: <code>${esc(u.id)}</code></p>
       <label for="editULabel">Etiqueta</label>
       <input type="text" id="editULabel" value="${esc(u.label)}" autocomplete="organization" />
       <div class="btn-row">
-        <button type="button" id="btnSaveUser">Guardar</button>
-        <a href="#/utilizadores" class="secondary" style="margin-top:0.75rem;display:inline-flex;align-items:center;padding:0.55rem 1.1rem;text-decoration:none;border-radius:6px;border:1px solid var(--border-strong);">Cancelar</a>
+        <button type="button" id="btnSaveUser">Salvar</button>
+        <a href="#/usuarios" class="btn-link secondary">Cancelar</a>
       </div>
       <p id="editUErr" class="feedback feedback--err hidden" role="alert"></p>
     </div>`;
@@ -517,7 +623,7 @@ async function renderUserEdit(view, userId) {
     }
     try {
       await api(`/users/${u.id}`, { method: "PUT", body: JSON.stringify({ label: lab }) });
-      location.hash = "#/utilizadores";
+      location.hash = "#/usuarios";
     } catch (e) {
       $("editUErr").textContent = e.message;
       $("editUErr").classList.remove("hidden");
@@ -550,7 +656,7 @@ async function renderTemplates(view) {
       <label for="tplDef">Definição MCP base (JSON)</label>
       <textarea id="tplDef" rows="10">${esc(defSample)}</textarea>
       <div class="btn-row">
-        <button type="button" id="btnTplSave">Guardar template</button>
+        <button type="button" id="btnTplSave">Salvar template</button>
       </div>
       <p id="tplErr" class="feedback feedback--err hidden" role="alert"></p>
     </div>
@@ -569,7 +675,7 @@ async function renderTemplates(view) {
       <p class="sub">Cabeçalhos: <code>${esc((d.accessHeaderKeys || []).join(", ") || "—")}</code></p>
       <div class="btn-row">
         <a class="btn-link secondary" href="#/templates/edit/${esc(d._id)}">Editar</a>
-        <button type="button" class="danger btn-tpl-del">Apagar</button>
+        <button type="button" class="danger btn-tpl-del">Excluir</button>
       </div>
     </li>`,
     )
@@ -611,7 +717,7 @@ async function renderTemplates(view) {
     const li = btn.closest("li");
     const id = li.getAttribute("data-tpl");
     btn.onclick = async () => {
-      if (!confirm("Apagar este template?")) return;
+      if (!confirm("Excluir este template?")) return;
       try {
         await api(`/mcp-templates/${id}`, { method: "DELETE" });
         await render();
@@ -647,8 +753,8 @@ async function renderTemplateEdit(view, templateId) {
       <label for="etplDef">Definição MCP base (JSON)</label>
       <textarea id="etplDef" rows="12">${esc(JSON.stringify(doc.def, null, 2))}</textarea>
       <div class="btn-row">
-        <button type="button" id="btnTplEditSave">Guardar alterações</button>
-        <a href="#/templates" class="secondary" style="margin-top:0.75rem;display:inline-flex;align-items:center;padding:0.55rem 1.1rem;text-decoration:none;border-radius:6px;border:1px solid var(--border-strong);">Cancelar</a>
+        <button type="button" id="btnTplEditSave">Salvar alterações</button>
+        <a href="#/templates" class="btn-link secondary">Cancelar</a>
       </div>
       <p id="etplErr" class="feedback feedback--err hidden" role="alert"></p>
     </div>`;
@@ -695,14 +801,14 @@ async function renderCatalogo(view) {
 }`;
   view.innerHTML = `
     <div class="panel">
-      <h3 class="section-title">Novo documento no registo</h3>
+      <h3 class="section-title">Novo documento no registro</h3>
       <div class="row cols-2">
         <div><label for="regKey">Chave</label><input type="text" id="regKey" /></div>
         <div><label for="regLabel">Etiqueta</label><input type="text" id="regLabel" /></div>
       </div>
       <label for="regDef">Definição MCP (JSON)</label>
       <textarea id="regDef" rows="10">${esc(defSample)}</textarea>
-      <div class="btn-row"><button type="button" id="btnRegSave">Guardar</button></div>
+      <div class="btn-row"><button type="button" id="btnRegSave">Salvar</button></div>
       <p id="regErr" class="feedback feedback--err hidden" role="alert"></p>
     </div>
     <div class="panel">
@@ -718,7 +824,7 @@ async function renderCatalogo(view) {
       <p class="sub">_id: ${esc(d._id)}</p>
       <div class="btn-row">
         <a class="btn-link secondary" href="#/catalogo/edit/${esc(d._id)}">Editar</a>
-        <button type="button" class="danger btn-reg-del">Apagar</button>
+        <button type="button" class="danger btn-reg-del">Excluir</button>
       </div>
     </li>`,
     )
@@ -754,7 +860,7 @@ async function renderCatalogo(view) {
     const li = btn.closest("li");
     const id = li.getAttribute("data-doc");
     btn.onclick = async () => {
-      if (!confirm("Remover do registo NoSQL?")) return;
+      if (!confirm("Excluir do registro NoSQL?")) return;
       try {
         await api(`/mcp-registry/${id}`, { method: "DELETE" });
         await render();
@@ -777,7 +883,7 @@ async function renderCatalogEdit(view, docId) {
   view.innerHTML = `
     <div class="panel">
       <p class="back-row"><a href="#/catalogo">← Catálogo MCP</a></p>
-      <h3 class="section-title">Editar documento do registo</h3>
+      <h3 class="section-title">Editar documento do registro</h3>
       <p class="sub">_id: <code>${esc(doc._id)}</code></p>
       <div class="row cols-2">
         <div><label for="eregKey">Chave</label><input type="text" id="eregKey" value="${esc(doc.key)}" /></div>
@@ -786,8 +892,8 @@ async function renderCatalogEdit(view, docId) {
       <label for="eregDef">Definição MCP (JSON)</label>
       <textarea id="eregDef" rows="14">${esc(JSON.stringify(doc.def, null, 2))}</textarea>
       <div class="btn-row">
-        <button type="button" id="btnCatalogSave">Guardar alterações</button>
-        <a href="#/catalogo" class="secondary" style="margin-top:0.75rem;display:inline-flex;align-items:center;padding:0.55rem 1.1rem;text-decoration:none;border-radius:6px;border:1px solid var(--border-strong);">Cancelar</a>
+        <button type="button" id="btnCatalogSave">Salvar alterações</button>
+        <a href="#/catalogo" class="btn-link secondary">Cancelar</a>
       </div>
       <p id="eregErr" class="feedback feedback--err hidden" role="alert"></p>
     </div>`;
@@ -828,7 +934,7 @@ function flattenTokens(users) {
   return rows;
 }
 
-async function renderApiKeys(view) {
+async function renderApiKeys(view, preFilterUserId) {
   const secretBanner = pendingNewKeySecret;
   pendingNewKeySecret = null;
   const { users } = await api("/users");
@@ -840,11 +946,11 @@ async function renderApiKeys(view) {
       ${
         hasUsers
           ? ""
-          : `<p class="feedback" role="status">Cria primeiro um utilizador em <a href="#/utilizadores">Utilizadores</a>.</p>`
+          : `<p class="feedback" role="status">Cria primeiro um usuário em <a href="#/usuarios">Usuários</a>.</p>`
       }
       <div class="row cols-2">
         <div>
-          <label for="keyUser">Utilizador</label>
+          <label for="keyUser">Usuário</label>
           <select id="keyUser" ${hasUsers ? "" : "disabled"}>${(users || [])
             .map((u) => `<option value="${esc(u.id)}">${esc(u.label)}</option>`)
             .join("")}</select>
@@ -863,31 +969,93 @@ async function renderApiKeys(view) {
     </div>
     <div class="panel">
       <h3 class="section-title">API keys existentes</h3>
+      <div class="log-filters" style="margin-bottom:0.75rem;">
+        <div class="log-filter-group">
+          <label for="keyFilterUser">Usuário</label>
+          <select id="keyFilterUser">
+            <option value="">Todos</option>
+            ${(users || []).map((u) => `<option value="${esc(u.id)}"${u.id === preFilterUserId ? " selected" : ""}>${esc(u.label)}</option>`).join("")}
+          </select>
+        </div>
+      </div>
+      <p class="sub" id="keyCount" style="margin:0 0 0.5rem;"></p>
       <div class="data-table-wrap">
         <table class="data-table">
-          <thead><tr><th>Utilizador</th><th>Etiqueta</th><th>ID do token</th><th>Criado</th><th></th></tr></thead>
-          <tbody>
-            ${rows
-              .map(
-                (t) => `
-              <tr>
-                <td>${esc(t.userLabel)}</td>
-                <td>${esc(t.label)}</td>
-                <td><code>${esc(t.id)}</code></td>
-                <td>${esc(t.createdAt || "")}</td>
-                <td>
-                  <div class="btn-row" style="margin:0;">
-                    <a class="secondary" href="#/mcps/${esc(t.id)}" style="display:inline-flex;padding:0.4rem 0.75rem;border-radius:6px;text-decoration:none;border:1px solid var(--border-strong);font-size:0.8125rem;">MCPs</a>
-                    <button type="button" class="danger btn-revoke" data-uid="${esc(t.userId)}" data-tid="${esc(t.id)}">Revogar</button>
-                  </div>
-                </td>
-              </tr>`,
-              )
-              .join("")}
-          </tbody>
+          <thead><tr><th>Usuário</th><th>Etiqueta</th><th>ID do token</th><th>Criado</th><th></th></tr></thead>
+          <tbody id="keyTbody"></tbody>
         </table>
       </div>
     </div>`;
+
+  const allRows = rows;
+
+  function renderKeyRows() {
+    const filterUid = $("keyFilterUser").value;
+    const filtered = filterUid ? allRows.filter((t) => t.userId === filterUid) : allRows;
+    const tbody = $("keyTbody");
+    tbody.innerHTML = filtered
+      .map(
+        (t) => `
+      <tr>
+        <td>${esc(t.userLabel)}</td>
+        <td>${esc(t.label)}</td>
+        <td><code>${esc(t.id)}</code></td>
+        <td>${esc(t.createdAt || "")}</td>
+        <td>
+          <div class="btn-row" style="margin:0;">
+            <button type="button" class="secondary btn-reveal" data-tid="${esc(t.id)}">Ver secret</button>
+            <a class="btn-link secondary" href="#/mcps/${esc(t.id)}">MCPs</a>
+            <a class="btn-link secondary" href="#/logs?token=${esc(t.id)}">Logs</a>
+            <button type="button" class="danger btn-revoke" data-uid="${esc(t.userId)}" data-tid="${esc(t.id)}">Revogar</button>
+          </div>
+        </td>
+      </tr>`,
+      )
+      .join("") || '<tr><td colspan="5" class="sub">Nenhuma API key para este usuário.</td></tr>';
+    $("keyCount").textContent = `${filtered.length} de ${allRows.length} tokens`;
+    wireKeyTableButtons();
+  }
+
+  function wireKeyTableButtons() {
+    view.querySelectorAll(".btn-reveal").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const tid = btn.getAttribute("data-tid");
+        try {
+          const j = await api(`/tokens/${tid}/secret`);
+          const row = btn.closest("tr");
+          let box = row.querySelector(".reveal-secret-box");
+          if (box) {
+            box.remove();
+            return;
+          }
+          const td = row.querySelector("td:last-child");
+          box = document.createElement("div");
+          box.className = "reveal-secret-box";
+          box.innerHTML = `<div class="token-box" style="margin-top:0.5rem;font-size:0.75rem;">${esc(j.secret)}</div>`;
+          td.appendChild(box);
+        } catch (e) {
+          alert(e.message);
+        }
+      });
+    });
+
+    view.querySelectorAll(".btn-revoke").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const uid = btn.getAttribute("data-uid");
+        const tid = btn.getAttribute("data-tid");
+        if (!confirm("Revogar esta API key e todos os MCPs associados?")) return;
+        try {
+          await api(`/users/${uid}/tokens/${tid}`, { method: "DELETE" });
+          await render();
+        } catch (e) {
+          alert(e.message);
+        }
+      });
+    });
+  }
+
+  $("keyFilterUser").addEventListener("change", renderKeyRows);
+  renderKeyRows();
 
   $("btnKeyCreate").onclick = async () => {
     $("keyErr").classList.add("hidden");
@@ -905,19 +1073,6 @@ async function renderApiKeys(view) {
     }
   };
 
-  view.querySelectorAll(".btn-revoke").forEach((btn) => {
-    btn.addEventListener("click", async () => {
-      const uid = btn.getAttribute("data-uid");
-      const tid = btn.getAttribute("data-tid");
-      if (!confirm("Revogar esta API key e todos os MCPs associados?")) return;
-      try {
-        await api(`/users/${uid}/tokens/${tid}`, { method: "DELETE" });
-        await render();
-      } catch (e) {
-        alert(e.message);
-      }
-    });
-  });
 }
 
 async function renderMcpEdit(view, tokenId, mcpId) {
@@ -956,7 +1111,7 @@ async function renderMcpEdit(view, tokenId, mcpId) {
         <div>
           <label class="label-like">Modo</label>
           <select class="mcp-mode">
-            <option value="direct"${mode === "direct" ? " selected" : ""}>URL directa</option>
+            <option value="direct"${mode === "direct" ? " selected" : ""}>URL direta</option>
             <option value="catalog"${mode === "catalog" ? " selected" : ""}>Catálogo global</option>
             <option value="admintpl"${mode === "admintpl" ? " selected" : ""}>Template administrativo</option>
           </select>
@@ -989,8 +1144,8 @@ async function renderMcpEdit(view, tokenId, mcpId) {
         <textarea class="mcp-access-headers" rows="10">${esc(accHdr)}</textarea>
       </div>
       <div class="btn-row">
-        <button type="button" class="btn-save-mcp">Guardar alterações</button>
-        <a href="#/mcps/${esc(tokenId)}" class="secondary" style="margin-top:0.75rem;display:inline-flex;align-items:center;padding:0.55rem 1.1rem;text-decoration:none;border-radius:6px;border:1px solid var(--border-strong);">Cancelar</a>
+        <button type="button" class="btn-save-mcp">Salvar alterações</button>
+        <a href="#/mcps/${esc(tokenId)}" class="btn-link secondary">Cancelar</a>
       </div>
     </div>`;
 
@@ -1012,12 +1167,12 @@ async function renderMcps(view, tokenId) {
   if (!tokenId) {
     view.innerHTML = `
       <div class="panel">
-        <h3 class="section-title">Seleccionar API key</h3>
-        <p class="section-lead">Escolhe o token para ver e gerir os MCPs vinculados, adicionar novos ou editar os existentes.</p>
+        <h3 class="section-title">Selecionar API key</h3>
+        <p class="section-lead">Escolha o token para ver e gerir os MCPs vinculados, adicionar novos ou editar os existentes.</p>
         <form id="mcpsPickForm" class="mcps-pick-form">
           <label for="pickTok">Token</label>
           <select id="pickTok" name="token" aria-describedby="pickTokErr">
-            <option value="">— Escolher —</option>
+            <option value="">— Escolhar —</option>
             ${flat
               .map(
                 (t) =>
@@ -1049,7 +1204,7 @@ async function renderMcps(view, tokenId) {
         <strong>${esc(m.label || m.id)}</strong>
         ${
           m.url
-            ? `<span class="sub"> · URL directa</span>`
+            ? `<span class="sub"> · URL direta</span>`
             : m.templateId
               ? (() => {
                   const tt = tplList.find((x) => x._id === m.templateId);
@@ -1079,7 +1234,7 @@ async function renderMcps(view, tokenId) {
         <div>
           <label class="label-like">Modo</label>
           <select class="mcp-mode">
-            <option value="direct">URL directa</option>
+            <option value="direct">URL direta</option>
             <option value="catalog">Catálogo global</option>
             <option value="admintpl">Template administrativo</option>
           </select>
@@ -1131,22 +1286,138 @@ async function renderMcps(view, tokenId) {
   });
 }
 
-function viewTitleForRoute(route) {
-  const map = {
-    inicio: "Início",
-    utilizadores: "Utilizadores",
+async function buildBreadcrumb(route) {
+  const crumbs = [{ label: "Início", href: "#/inicio" }];
+
+  if (route.name === "inicio") return crumbs;
+
+  if (route.name === "usuarios") {
+    crumbs.push({ label: "Usuários" });
+    return crumbs;
+  }
+
+  if (route.name === "user-edit") {
+    crumbs.push({ label: "Usuários", href: "#/usuarios" });
+    try {
+      const { users } = await api("/users");
+      const u = (users || []).find((x) => x.id === route.userId);
+      crumbs.push({ label: u ? u.label : route.userId });
+    } catch { crumbs.push({ label: route.userId }); }
+    return crumbs;
+  }
+
+  if (route.name === "api-keys") {
+    crumbs.push({ label: "Usuários", href: "#/usuarios" });
+    const uid = route.query?.get("user");
+    if (uid) {
+      try {
+        const { users } = await api("/users");
+        const u = (users || []).find((x) => x.id === uid);
+        crumbs.push({ label: u ? u.label : uid, href: `#/usuarios/edit/${uid}` });
+      } catch { crumbs.push({ label: uid }); }
+    }
+    crumbs.push({ label: "API keys" });
+    return crumbs;
+  }
+
+  if (route.name === "mcps") {
+    crumbs.push({ label: "Usuários", href: "#/usuarios" });
+    if (route.tokenId) {
+      try {
+        const { users } = await api("/users");
+        for (const u of users || []) {
+          const tok = (u.tokens || []).find((t) => t.id === route.tokenId);
+          if (tok) {
+            crumbs.push({ label: u.label, href: `#/usuarios/edit/${u.id}` });
+            crumbs.push({ label: `API key: ${tok.label}`, href: `#/api-keys?user=${u.id}` });
+            break;
+          }
+        }
+      } catch {}
+      crumbs.push({ label: "MCPs" });
+    } else {
+      crumbs.push({ label: "MCPs" });
+    }
+    return crumbs;
+  }
+
+  if (route.name === "mcp-edit") {
+    crumbs.push({ label: "Usuários", href: "#/usuarios" });
+    if (route.tokenId) {
+      try {
+        const { users } = await api("/users");
+        for (const u of users || []) {
+          const tok = (u.tokens || []).find((t) => t.id === route.tokenId);
+          if (tok) {
+            crumbs.push({ label: u.label, href: `#/usuarios/edit/${u.id}` });
+            crumbs.push({ label: `API key: ${tok.label}`, href: `#/api-keys?user=${u.id}` });
+            break;
+          }
+        }
+      } catch {}
+      crumbs.push({ label: "MCPs", href: `#/mcps/${route.tokenId}` });
+    }
+    crumbs.push({ label: "Editar MCP" });
+    return crumbs;
+  }
+
+  if (route.name === "logs") {
+    const tokenFilter = route.query?.get("token");
+    if (tokenFilter) {
+      crumbs.push({ label: "Usuários", href: "#/usuarios" });
+      try {
+        const { users } = await api("/users");
+        for (const u of users || []) {
+          const tok = (u.tokens || []).find((t) => t.id === tokenFilter);
+          if (tok) {
+            crumbs.push({ label: u.label, href: `#/usuarios/edit/${u.id}` });
+            crumbs.push({ label: `API key: ${tok.label}`, href: `#/api-keys?user=${u.id}` });
+            break;
+          }
+        }
+      } catch {}
+    }
+    crumbs.push({ label: "Logs do sistema" });
+    return crumbs;
+  }
+
+  const simpleMap = {
     templates: "Templates MCP",
     catalogo: "Catálogo MCP",
-    "api-keys": "API keys",
-    mcps: "MCPs por API key",
-    logs: "Logs do sistema",
-    clientes: "Ligar Cursor / Claude",
-    "user-edit": "Editar utilizador",
-    "template-edit": "Editar template",
-    "catalog-edit": "Editar catálogo",
-    "mcp-edit": "Editar MCP",
+    clientes: "Como conectar?",
   };
-  return map[route.name] || "Painel";
+  if (simpleMap[route.name]) {
+    crumbs.push({ label: simpleMap[route.name] });
+    return crumbs;
+  }
+
+  if (route.name === "template-edit") {
+    crumbs.push({ label: "Templates MCP", href: "#/templates" });
+    crumbs.push({ label: "Editar template" });
+    return crumbs;
+  }
+
+  if (route.name === "catalog-edit") {
+    crumbs.push({ label: "Catálogo MCP", href: "#/catalogo" });
+    crumbs.push({ label: "Editar catálogo" });
+    return crumbs;
+  }
+
+  crumbs.push({ label: "Painel" });
+  return crumbs;
+}
+
+function renderBreadcrumbHtml(crumbs) {
+  return crumbs
+    .map((c, i) => {
+      const isLast = i === crumbs.length - 1;
+      const sep = i > 0 ? '<span class="breadcrumb-sep">›</span>' : "";
+      if (isLast || !c.href) {
+        return `${sep}<span class="breadcrumb-current">${esc(c.label)}</span>`;
+      }
+      return `${sep}<a class="breadcrumb-link" href="${c.href}">${esc(c.label)}</a>`;
+    })
+    .join("");
 }
 
 async function render() {
@@ -1156,7 +1427,12 @@ async function render() {
   const view = $("appView");
   if (!view || !vt) return;
 
-  vt.textContent = viewTitleForRoute(route);
+  try {
+    const crumbs = await buildBreadcrumb(route);
+    vt.innerHTML = renderBreadcrumbHtml(crumbs);
+  } catch {
+    vt.textContent = "Painel";
+  }
 
   try {
     switch (route.name) {
@@ -1166,8 +1442,8 @@ async function render() {
       case "clientes":
         await renderClientes(view);
         break;
-      case "utilizadores":
-        await renderUtilizadores(view);
+      case "usuarios":
+        await renderUsuarios(view);
         break;
       case "user-edit":
         await renderUserEdit(view, route.userId);
@@ -1185,7 +1461,7 @@ async function render() {
         await renderCatalogEdit(view, route.docId);
         break;
       case "api-keys":
-        await renderApiKeys(view);
+        await renderApiKeys(view, route.query?.get("user") || null);
         break;
       case "mcps":
         await renderMcps(view, route.tokenId);
@@ -1194,7 +1470,7 @@ async function render() {
         await renderMcpEdit(view, route.tokenId, route.mcpId);
         break;
       case "logs":
-        await renderSystemLogs(view);
+        await renderSystemLogs(view, route.query?.get("token") || null);
         break;
       default:
         if ((location.hash || "").replace(/^#\/?/, "") !== "inicio") {
@@ -1292,21 +1568,21 @@ async function applyLoginUiMode() {
       wrap?.classList.remove("hidden");
       userIn?.setAttribute("required", "required");
       if (lead) {
-        lead.textContent = "Introduz as credenciais de acesso ao painel.";
+        lead.textContent = "Digite as credenciais de acesso ao painel.";
       }
     } else {
       wrap?.classList.add("hidden");
       userIn?.removeAttribute("required");
       if (lead) {
         lead.textContent =
-          "Introduz a palavra-passe de administrador definida na configuração do hub.";
+          "Digite a senha de administrador definida na configuração do hub.";
       }
     }
   } catch {
     wrap?.classList.add("hidden");
     userIn?.removeAttribute("required");
     if (lead) {
-      lead.textContent = "Introduz as credenciais de acesso ao painel.";
+      lead.textContent = "Digite as credenciais de acesso ao painel.";
     }
   }
 }

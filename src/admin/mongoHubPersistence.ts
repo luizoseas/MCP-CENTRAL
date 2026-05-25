@@ -1,7 +1,7 @@
 import { MongoClient, type Collection } from "mongodb";
 import type { HubUsersFile } from "./types.js";
 
-/** Documento na mesma coleção que o registo MCP (catálogo + templates). */
+/** Documento na mesma coleção que o registro MCP (catálogo + templates). */
 export type RegistryBlob = {
   mcp_servers: unknown[];
   mcp_templates?: unknown[];

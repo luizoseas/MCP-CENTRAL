@@ -197,7 +197,7 @@ function isLocalOauthHost(host: string): boolean {
 
 /**
  * Origem pública (scheme + host) para OAuth / PRM: alinha com o URL que o cliente usa no Cursor.
- * Sem X-Forwarded-Proto, o Node vê só http; em hosts públicos força https por defeito (evita
+ * Sem X-Forwarded-Proto, o Node vê só http; em hosts públicos força https por padrão (evita
  * "Protected resource http://… does not match expected https://…"). Override: MCP_HUB_OAUTH_PUBLIC_ORIGIN.
  * Desactivar coerção: MCP_HUB_OAUTH_COERCE_HTTPS=0
  */
@@ -343,7 +343,7 @@ export function syntheticMcpServerKey(tokenId: string, mcpId: string): string {
   return `t${a}_${b}`;
 }
 
-/** Chave injectada no `mcpServers` para definições em `mcp_templates` (registo). */
+/** Chave injectada no `mcpServers` para definições em `mcp_templates` (registro). */
 export function hubTemplateInjectKey(templateDocId: string): string {
   return `__hub_template__${templateDocId}`;
 }
@@ -401,7 +401,7 @@ export function buildHubConfigForApiToken(
       const baseDef = hubCfgBase.mcpServers[inj];
       if (!baseDef) {
         throw new Error(
-          `Template administrativo "${tid}" não existe ou foi removido do registo.`,
+          `Template administrativo "${tid}" não existe ou foi removido do registro.`,
         );
       }
       mcpServers[key] = mergeConnectionIntoServerDef(baseDef, m.connection);
@@ -636,7 +636,7 @@ function mergeSessionEnv(req: Request, initBody: unknown): SessionCredentials {
 }
 
 type ResolvedHubConfig =
-  | { ok: true; hubCfg: HubConfig; extraEnvByServer?: Record<string, EnvLookup> }
+  | { ok: true; hubCfg: HubConfig; extraEnvByServer?: Record<string, EnvLookup>; tokenId?: string }
   | { ok: false; httpStatus: number; message: string };
 
 async function resolveHubConfigForHttpSession(
@@ -676,7 +676,7 @@ async function resolveHubConfigForHttpSession(
       mcps,
       apiToken.id,
     );
-    return { ok: true, hubCfg, extraEnvByServer };
+    return { ok: true, hubCfg, extraEnvByServer, tokenId: apiToken.id };
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
     return { ok: false, httpStatus: 400, message: msg };
@@ -768,7 +768,7 @@ async function loadFileHubConfig(): Promise<HubConfig> {
   return HubConfigSchema.parse(json);
 }
 
-/** Ficheiro mcp-hub.config.json + documentos na coleção `mcp_servers` (JSON NoSQL em disco). */
+/** Arquivo mcp-hub.config.json + documentos na coleção `mcp_servers` (JSON NoSQL em disco). */
 async function loadMergedHubConfig(): Promise<HubConfig> {
   const fileCfg = await loadFileHubConfig();
   const docs = await getMcpRegistryStore().list();
@@ -839,7 +839,7 @@ export function buildHubMcpServer(upstreams: Upstream[]): McpServer {
       },
       instructions: [
         "Este hub expõe apenas ferramentas (Tools) agregadas de vários servidores MCP.",
-        "Não há prompts nem resources neste hub — no Cursor só a secção Tools mostrará entradas.",
+        "Não há prompts nem resources neste hub — no Cursor só a seção Tools mostrará entradas.",
         `Cada nome é prefixado como SERVIDOR__ferramenta (máx. ${HUB_EXPOSED_TOOL_NAME_MAX_LEN} caracteres com MCP_HUB_TOOL_NAME_MAX_LEN; nomes longos ganham sufixo _HASH). Usa mcp_hub__meta para o mapa completo.`,
         "e-ship (HTTP): X-Eship-Api-Key-WMS / X-Eship-Api-Key-TAR (chaves por módulo) ou X-Eship-Api-Key; URL base X-Eship-Api-Base-Url / X-Api-Base-Url. API-WMS/APIKEY-TAR = só um módulo. _meta: eshipApiKeyWms, eshipApiKeyTar, eshipApiBaseUrl. stdio: env.",
         "X-MCP-Hub-User-Token: secret de API token (painel admin); MCPs só por URL directa ignoram o filtro WMS/TAR.",
@@ -904,6 +904,7 @@ export async function connectAllUpstreams(
   config: HubConfig,
   env: EnvLookup,
   extraEnvByServer?: Record<string, EnvLookup>,
+  tokenId?: string,
 ): Promise<Upstream[]> {
   const entries = Object.entries(config.mcpServers);
   if (entries.length === 0) {
@@ -922,19 +923,16 @@ export async function connectAllUpstreams(
       };
       def = expandServerDef(rawDef, mergedEnv);
     } catch (e: unknown) {
-      log(`Upstream "${key}": expansão de variáveis falhou:`, e);
+      log(`Upstream "${key}": expansão de variáveis falhou (ignorado):`, e);
       pushSystemLog({
         level: "error",
         source: "mcp",
         code: "MCP_EXPAND_ENV_FAILED",
-        message: `Falha ao expandir variáveis do upstream "${key}".`,
+        message: `Falha ao expandir variáveis do upstream "${key}" — ignorado, hub continua sem este MCP.`,
         cause: e,
+        tokenId,
       });
-      for (const u of upstreams) {
-        await u.client.close().catch(() => {});
-        await u.transport.close().catch(() => {});
-      }
-      throw e;
+      continue;
     }
 
     const client = new Client(
@@ -973,20 +971,17 @@ export async function connectAllUpstreams(
     try {
       await client.connect(transport);
     } catch (e) {
-      log(`Upstream "${key}" não conectou:`, e);
+      log(`Upstream "${key}" não conectou (ignorado):`, e);
       pushSystemLog({
         level: "error",
         source: "mcp",
         code: "MCP_UPSTREAM_CONNECT_FAILED",
-        message: `Falha ao conectar no upstream "${key}".`,
+        message: `Falha ao conectar no upstream "${key}" — ignorado, hub continua sem este MCP.`,
         cause: e,
+        tokenId,
       });
       await transport.close().catch(() => {});
-      for (const u of upstreams) {
-        await u.client.close().catch(() => {});
-        await u.transport.close().catch(() => {});
-      }
-      throw e;
+      continue;
     }
 
     const toolList = await listAllTools(client);
@@ -1002,6 +997,7 @@ export async function connectAllUpstreams(
       source: "mcp",
       code: "MCP_UPSTREAM_CONNECTED",
       message: `Conectado "${key}" com ${toolList.length} ferramenta(s).`,
+      tokenId,
     });
   }
 
@@ -1208,7 +1204,7 @@ async function serveHttp() {
     );
   } else {
     log(
-      `Admin em modo informativo (sem login): http://${adminHost}:${port}/hub-admin — configura palavra-passe de admin ou LDAP.`,
+      `Admin em modo informativo (sem login): http://${adminHost}:${port}/hub-admin — configura senha de admin ou LDAP.`,
     );
   }
 
@@ -1363,11 +1359,11 @@ async function serveHttp() {
       hubAdminLoginEnabled: hubAdminEnabled,
       hubAdminAuth: hubAdminEnabled ? adminLoginMode : "off",
       mcpRegistry: mongo
-        ? "Registo + utilizadores/tokens/MCPs em MongoDB (MCP_HUB_MONGODB_URI); mescla mcp-hub.config.json."
-        : "Registo NoSQL em disco (mcp_servers + mcp_templates): MCP_HUB_MCP_REGISTRY_FILE; mescla com mcp-hub.config.json.",
+        ? "Registro + usuários/tokens/MCPs em MongoDB (MCP_HUB_MONGODB_URI); mescla mcp-hub.config.json."
+        : "Registro NoSQL em disco (mcp_servers + mcp_templates): MCP_HUB_MCP_REGISTRY_FILE; mescla com mcp-hub.config.json.",
       persistence: mongo ? "mongodb" : "file",
       hubUserToken:
-        "Opcional: cabeçalho X-MCP-Hub-User-Token = secret de um API token (vários por utilizador na UI admin). Só MCPs directos por URL: o filtro de módulo WMS/TAR não se aplica a esse token.",
+        "Opcional: cabeçalho X-MCP-Hub-User-Token = secret de um API token (vários por usuário na UI admin). Só MCPs directos por URL: o filtro de módulo WMS/TAR não se aplica a esse token.",
       eshipAuth:
         "initialize: chave + URL base http(s). Proxy: MCP_HUB_TRUST_PROXY=1. OAuth PRM: MCP_HUB_OAUTH_PUBLIC_ORIGIN / MCP_HUB_OAUTH_RESOURCE_URL; MCP_HUB_OAUTH_COERCE_HTTPS=0 em dev só-http.",
       sseLegacy: `GET ${basePath} com Accept: text/event-stream + POST ${basePath}/messages?sessionId=… (clientes com fallback SSE).`,
@@ -1415,6 +1411,7 @@ async function serveHttp() {
     code: string,
     message: string,
     cause?: unknown,
+    tokenId?: string,
   ) {
     const logged = pushSystemLog({
       level: "error",
@@ -1422,6 +1419,7 @@ async function serveHttp() {
       code,
       message,
       cause,
+      tokenId,
     });
     res.status(httpStatus).json({
       jsonrpc: "2.0",
@@ -1484,7 +1482,7 @@ async function serveHttp() {
           }
           return;
         }
-        const { hubCfg, extraEnvByServer } = resolvedCfg;
+        const { hubCfg, extraEnvByServer, tokenId: resolvedTokenId } = resolvedCfg;
         let upstreams: Upstream[];
         try {
           assertEnvPlaceholdersForConfig(
@@ -1496,6 +1494,7 @@ async function serveHttp() {
             hubCfg,
             sessionEnv,
             extraEnvByServer,
+            resolvedTokenId,
           );
         } catch (e: unknown) {
           const msg = e instanceof Error ? e.message : String(e);
@@ -1509,6 +1508,7 @@ async function serveHttp() {
               "MCP_INIT_UPSTREAM_CONNECTION_FAILED",
               msg,
               e,
+              resolvedTokenId,
             );
           }
           return;

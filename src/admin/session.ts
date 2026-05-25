@@ -7,7 +7,7 @@ export type HubAdminRole = "admin" | "lideranca";
 export type AdminSessionPayload = {
   exp: number;
   v: number;
-  /** Nome mostrado no painel (login LDAP ou "Admin" para login por palavra-passe). */
+  /** Nome mostrado no painel (login LDAP ou "Admin" para login por senha). */
   sub: string;
   /** Papel no painel admin: admin (total) ou lideranca (sem DELETE). */
   role: HubAdminRole;

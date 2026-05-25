@@ -7,7 +7,7 @@ import { migrateV1ToV2, HubUserStore } from "./store.js";
 import type { HubUsersFileV1 } from "./types.js";
 
 describe("migrateV1ToV2", () => {
-  it("converte utilizadores com apiToken e links para api_tokens e token_mcps", () => {
+  it("converte usuários com apiToken e links para api_tokens e token_mcps", () => {
     const v1: HubUsersFileV1 = {
       users: [
         {
@@ -95,7 +95,7 @@ describe("HubUserStore", () => {
     }
   });
 
-  it("migra ficheiro v1 ao carregar e grava v2", async () => {
+  it("migra arquivo v1 ao carregar e grava v2", async () => {
     const dir = await mkdtemp(join(tmpdir(), "hub-mig-"));
     const filePath = join(dir, "hub-users.json");
     try {

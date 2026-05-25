@@ -5,9 +5,9 @@
   "type": "module",
   "main": "dist/hub.js",
   "scripts": {
-    "hub": "tsx src/hub.ts",
+    "hub": "node --env-file=.env --import tsx src/hub.ts",
     "build": "tsc",
-    "start": "node dist/hub.js",
+    "start": "node --env-file=.env dist/hub.js",
     "test": "node --import tsx --test src/admin/store.test.ts src/admin/ldapAuth.test.ts src/hub.buildHubConfigForApiToken.test.ts src/hub.hubToolName.test.ts"
   },
   "keywords": [],

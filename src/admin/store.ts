@@ -63,7 +63,7 @@ function isV1Shape(parsed: unknown): parsed is HubUsersFileV1 {
   return hasOldToken || hasLinks;
 }
 
-/** Migração v1 → v2: um api_token por utilizador com apiToken; links → token_mcps com template. */
+/** Migração v1 → v2: um api_token por usuário com apiToken; links → token_mcps com template. */
 export function migrateV1ToV2(v1: HubUsersFileV1): HubUsersFile {
   const now = new Date().toISOString();
   const users: HubUser[] = [];
@@ -134,7 +134,7 @@ export class HubUserStore {
     await writeJsonToFile(this.filePath, this.data);
   }
 
-  /** Sempre relê MongoDB ou ficheiro — evita estado desactualizado entre pedidos (ex.: ficheiro editado externamente). */
+  /** Sempre relê MongoDB ou arquivo — evita estado desatualizado entre pedidos (ex.: arquivo editado externamente). */
   async load(): Promise<void> {
     if (this.useMongo) {
       const parsed: unknown = await mongoLoadHubUsersState();
@@ -224,7 +224,7 @@ export class HubUserStore {
     await this.load();
     const user: HubUser = {
       id: randomUUID(),
-      label: label.trim() || "utilizador",
+      label: label.trim() || "usuário",
       createdAt: new Date().toISOString(),
     };
     this.data.users.push(user);
@@ -268,7 +268,7 @@ export class HubUserStore {
     await this.load();
     const owner = this.getUserById(userId);
     if (!owner) {
-      throw new Error("Utilizador não encontrado.");
+      throw new Error("Usuário não encontrado.");
     }
     const secret = randomBytes(32).toString("hex");
     const rec: ApiTokenRecord = {

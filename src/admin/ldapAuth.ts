@@ -1,6 +1,6 @@
 import { Client, InvalidCredentialsError } from "ldapts";
 
-/** Ligação com conta de serviço + pesquisa + bind do utilizador. */
+/** Ligação com conta de serviço + pesquisa + bind do usuário. */
 export type HubLdapServiceOptions = {
   authMode: "service";
   url: string;
@@ -16,7 +16,7 @@ export type HubLdapServiceOptions = {
 };
 
 /**
- * Só URL + base no ambiente; utilizador e palavra-passe vêm do cliente.
+ * Só URL + base no ambiente; usuário e senha vêm do cliente.
  * Identidade de bind = substituir `{{username}}` no modelo, excepto se o
  * cliente enviar já UPN (`@`) ou DN (`dn=` / `cn=`, etc.).
  */
@@ -25,9 +25,9 @@ export type HubLdapDirectOptions = {
   url: string;
   /** Deve conter `{{username}}` (excepto quando o login já é UPN/DN completo). */
   userBindIdentityTemplate: string;
-  /** Base para pesquisa de grupos/atributos do utilizador após directBind. */
+  /** Base para pesquisa de grupos/atributos do usuário após directBind. */
   userSearchBase: string;
-  /** Filtro para localizar o utilizador e ler memberOf. Deve conter `{{username}}`. */
+  /** Filtro para localizar o usuário e ler memberOf. Deve conter `{{username}}`. */
   userFilter: string;
   searchScope: "base" | "one" | "sub" | "children" | "subordinates";
   connectTimeoutMs: number;
@@ -113,14 +113,14 @@ function isServiceBindPhase(phase: string): boolean {
 function describeLdapOrNetworkError(err: unknown, phase: string): string {
   if (err instanceof InvalidCredentialsError) {
     if (phase === "userBind" || phase === "directBind") {
-      return "LDAP: palavra-passe incorrecta para este utilizador (credenciais inválidas no servidor).";
+      return "LDAP: senha incorrecta para este usuário (credenciais inválidas no servidor).";
     }
     if (isServiceBindPhase(phase)) {
       return [
         "LDAP (conta de serviço no .env): credenciais inválidas para MCP_HUB_LDAP_BIND_DN / MCP_HUB_LDAP_BIND_PASSWORD.",
-        "Isto ocorre antes do login do painel — não são o utilizador nem a palavra-passe que escreves no formulário.",
-        "No Active Directory, data 52e costuma indicar palavra-passe errada ou conta de serviço restrita.",
-        "Se queres validar só com utilizador e palavra-passe do domínio (ex.: login@eship.local), remove do ambiente MCP_HUB_LDAP_BIND_DN, MCP_HUB_LDAP_BIND_PASSWORD e MCP_HUB_LDAP_USER_SEARCH_BASE e define MCP_HUB_LDAP_URL + MCP_HUB_LDAP_BASE_DN (modo LDAP directo).",
+        "Isto ocorre antes do login do painel — não são o usuário nem a senha que escreves no formulário.",
+        "No Active Directory, data 52e costuma indicar senha errada ou conta de serviço restrita.",
+        "Se queres validar só com usuário e senha do domínio (ex.: login@eship.local), remove do ambiente MCP_HUB_LDAP_BIND_DN, MCP_HUB_LDAP_BIND_PASSWORD e MCP_HUB_LDAP_USER_SEARCH_BASE e define MCP_HUB_LDAP_URL + MCP_HUB_LDAP_BASE_DN (modo LDAP directo).",
       ].join(" ");
     }
     return `LDAP (${phase}): credenciais inválidas — ${err.message || "sem detalhe"}`;
@@ -130,7 +130,7 @@ function describeLdapOrNetworkError(err: unknown, phase: string): string {
     if (isServiceBindPhase(phase)) {
       return [
         `LDAP (conta de serviço no .env): código ${err.code} — ${msg}`,
-        "Este passo usa MCP_HUB_LDAP_BIND_DN e MCP_HUB_LDAP_BIND_PASSWORD, não o utilizador do formulário.",
+        "Este passo usa MCP_HUB_LDAP_BIND_DN e MCP_HUB_LDAP_BIND_PASSWORD, não o usuário do formulário.",
         "Para login directo ao AD sem conta de serviço, remove BIND_DN, BIND_PASSWORD e USER_SEARCH_BASE e usa MCP_HUB_LDAP_BASE_DN (ver documentação modo B1).",
       ].join(" ");
     }
@@ -186,10 +186,10 @@ export function resolveDirectBindIdentity(
 }
 
 /**
- * Valida utilizador + palavra-passe contra LDAP.
+ * Valida usuário + senha contra LDAP.
  * - `direct`: um único bind com credenciais do cliente.
- * - `service`: bind de serviço, pesquisa, bind do utilizador.
- * O utilizador reservado «admin» é tratado no router (palavra-passe local).
+ * - `service`: bind de serviço, pesquisa, bind do usuário.
+ * O usuário reservado «admin» é tratado no router (senha local).
  */
 export async function verifyLdapUserPassword(
   opts: HubLdapOptions,
@@ -199,7 +199,7 @@ export async function verifyLdapUserPassword(
   const user = username.trim();
   const pw = password;
   if (!user || !pw) {
-    return { ok: false, error: "Utilizador e palavra-passe são obrigatórios." };
+    return { ok: false, error: "Usuário e senha são obrigatórios." };
   }
 
   if (opts.authMode === "direct") {
@@ -216,7 +216,7 @@ export async function verifyLdapUserPassword(
       user,
     );
     if (!identity) {
-      return { ok: false, error: "Indica o utilizador." };
+      return { ok: false, error: "Informe o usuário." };
     }
     const client = new Client(clientOptions(opts));
     try {
@@ -245,7 +245,7 @@ export async function verifyLdapUserPassword(
         return {
           ok: false,
           error:
-            "LDAP: utilizador autenticou, mas não foi encontrado na pesquisa de grupos (MCP_HUB_LDAP_USER_SEARCH_BASE / MCP_HUB_LDAP_USER_FILTER).",
+            "LDAP: usuário autenticou, mas não foi encontrado na pesquisa de grupos (MCP_HUB_LDAP_USER_SEARCH_BASE / MCP_HUB_LDAP_USER_FILTER).",
           statusCode: 403,
         };
       }
@@ -316,7 +316,7 @@ export async function verifyLdapUserPassword(
       return {
         ok: false,
         error:
-          "LDAP: não foi encontrado nenhum utilizador com esse nome na base configurada (MCP_HUB_LDAP_USER_SEARCH_BASE / MCP_HUB_LDAP_USER_FILTER).",
+          "LDAP: não foi encontrado nenhum usuário com esse nome na base configurada (MCP_HUB_LDAP_USER_SEARCH_BASE / MCP_HUB_LDAP_USER_FILTER).",
         statusCode: 401,
       };
     }
@@ -346,7 +346,7 @@ export async function verifyLdapUserPassword(
       }
       return {
         ok: false,
-        error: describeLdapOrNetworkError(err, "autenticacaoUtilizador"),
+        error: describeLdapOrNetworkError(err, "autenticacaoUsuário"),
         statusCode: 503,
       };
     }

@@ -11,6 +11,7 @@ export type SystemLogEntry = {
   code: string;
   message: string;
   detail?: string;
+  tokenId?: string;
 };
 
 const MAX_ENTRIES = 500;
@@ -39,6 +40,7 @@ export function pushSystemLog(input: {
   code: string;
   message: string;
   cause?: unknown;
+  tokenId?: string;
 }): SystemLogEntry {
   const entry: SystemLogEntry = {
     id: randomUUID(),
@@ -48,6 +50,7 @@ export function pushSystemLog(input: {
     code: input.code,
     message: input.message,
     detail: toDetail(input.cause),
+    tokenId: input.tokenId,
   };
   entries.push(entry);
   if (entries.length > MAX_ENTRIES) {
@@ -56,7 +59,10 @@ export function pushSystemLog(input: {
   return entry;
 }
 
-export function getSystemLogs(limit = 100): SystemLogEntry[] {
+export function getSystemLogs(limit = 100, tokenId?: string): SystemLogEntry[] {
   const n = Number.isFinite(limit) ? Math.max(1, Math.min(500, limit)) : 100;
-  return entries.slice(-n).reverse();
+  const src = tokenId
+    ? entries.filter((e) => e.tokenId === tokenId)
+    : entries;
+  return src.slice(-n).reverse();
 }

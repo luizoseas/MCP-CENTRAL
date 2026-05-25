@@ -10,8 +10,8 @@ import {
 import { writeJsonToFile } from "./writeJsonFile.js";
 
 /**
- * Documento na "coleção" mcp_servers (ficheiro JSON — substituível por MongoDB, etc.).
- * Chaves com o mesmo nome que em mcp-hub.config.json sobrepõem a entrada do ficheiro.
+ * Documento na "coleção" mcp_servers (arquivo JSON — substituível por MongoDB, etc.).
+ * Chaves com o mesmo nome que em mcp-hub.config.json sobrepõem a entrada do arquivo.
  */
 export type McpServerDocument = {
   _id: string;
@@ -23,7 +23,7 @@ export type McpServerDocument = {
 };
 
 /**
- * Template MCP definido pelo admin: URL/definição base fixa; utilizadores finais
+ * Template MCP definido pelo admin: URL/definição base fixa; usuários finais
  * escolhem o template e preenchem sobretudo cabeçalhos de acesso em `connection.headers`.
  */
 export type McpTemplateDocument = {
@@ -119,7 +119,7 @@ export class McpRegistryStore {
     await writeJsonToFile(this.filePath, this.data);
   }
 
-  /** Sempre relê MongoDB ou ficheiro (evita cache desactualizado entre pedidos). */
+  /** Sempre relê MongoDB ou arquivo (evita cache desatualizado entre pedidos). */
   async load(): Promise<void> {
     if (this.useMongo) {
       const parsed: unknown = await mongoLoadRegistryState();

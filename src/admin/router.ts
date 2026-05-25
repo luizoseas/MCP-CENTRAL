@@ -91,7 +91,7 @@ function ldapRoleFromGroups(groups: string[]): HubAdminRole | null {
 }
 
 const ADMIN_NOT_CONFIGURED_MSG =
-  "Painel admin não configurado. Configura login por palavra-passe ou LDAP e reinicia o hub.";
+  "Painel admin não configurado. Configura login por senha ou LDAP e reinicia o hub.";
 
 const disabledSetupHtml = `<!DOCTYPE html>
 <html lang="pt"><head><meta charset="utf-8"/><title>MCP Hub — Admin</title>
@@ -99,8 +99,8 @@ const disabledSetupHtml = `<!DOCTYPE html>
 code{background:#1a2332;padding:.15rem .4rem;border-radius:4px}</style></head><body>
 <h1>Painel admin — configuração em falta</h1>
 <p>O servidor HTTP está a correr, mas o admin <strong>não foi activado</strong>.</p>
-<p>Configura <strong>login por palavra-passe</strong> ou <strong>LDAP</strong> no processo do hub (ficheiro de ambiente do deployment) e reinicia.</p>
-<p>Em Docker, ajusta o compose ou o ficheiro de env do contentor e recria o serviço.</p>
+<p>Configura <strong>login por senha</strong> ou <strong>LDAP</strong> no processo do hub (arquivo de ambiente do deployment) e reinicia.</p>
+<p>Em Docker, ajusta o compose ou o arquivo de env do contentor e recria o serviço.</p>
 <p>O endpoint <code>GET …/mcp/health</code> indica quando o painel está activo.</p>
 </body></html>`;
 
@@ -180,7 +180,7 @@ export function createHubAdminRouter(opts: {
         res,
         403,
         "DELETE_FORBIDDEN",
-        "Sem permissão para excluir. Apenas membros do grupo AD Administrator podem apagar.",
+        "Sem permissão para excluir. Apenas membros do grupo AD Administrator podem excluir.",
       );
       return;
     }
@@ -217,11 +217,11 @@ export function createHubAdminRouter(opts: {
           return;
         }
         if (!username) {
-          sendPanelError(res, 400, "LOGIN_USERNAME_REQUIRED", "Indica o utilizador.");
+          sendPanelError(res, 400, "LOGIN_USERNAME_REQUIRED", "Informe o usuário.");
           return;
         }
         if (!pw) {
-          sendPanelError(res, 400, "LOGIN_PASSWORD_REQUIRED", "Indica a palavra-passe.");
+          sendPanelError(res, 400, "LOGIN_PASSWORD_REQUIRED", "Indica a senha.");
           return;
         }
         const isLocalAdmin =
@@ -232,7 +232,7 @@ export function createHubAdminRouter(opts: {
               res,
               400,
               "LOCAL_ADMIN_PASSWORD_MISSING",
-              "A conta reservada «admin» usa a palavra-passe local (MCP_HUB_ADMIN_PASSWORD), mas essa variável não está definida.",
+              "A conta reservada «admin» usa a senha local (MCP_HUB_ADMIN_PASSWORD), mas essa variável não está definida.",
             );
             return;
           }
@@ -241,7 +241,7 @@ export function createHubAdminRouter(opts: {
               res,
               401,
               "LOCAL_ADMIN_PASSWORD_INVALID",
-              "Palavra-passe inválida para a conta local «admin».",
+              "Senha inválida para a conta local «admin».",
             );
             return;
           }
@@ -261,7 +261,7 @@ export function createHubAdminRouter(opts: {
         }
       } else {
         if (!timingSafeEqualStr(adminPassword, pw)) {
-          sendPanelError(res, 401, "PASSWORD_INVALID", "Palavra-passe inválida.");
+          sendPanelError(res, 401, "PASSWORD_INVALID", "Senha inválida.");
           return;
         }
         role = "admin";
@@ -346,7 +346,7 @@ export function createHubAdminRouter(opts: {
     await store.load();
     const ok = await store.deleteUser(String(req.params.id ?? "").trim());
     if (!ok) {
-      sendPanelError(res, 404, "USER_NOT_FOUND", "Utilizador não encontrado.");
+      sendPanelError(res, 404, "USER_NOT_FOUND", "Usuário não encontrado.");
       return;
     }
     res.json({ ok: true });
@@ -362,7 +362,7 @@ export function createHubAdminRouter(opts: {
     await store.load();
     const updated = await store.updateUser(String(req.params.id ?? "").trim(), label);
     if (!updated) {
-      sendPanelError(res, 404, "USER_NOT_FOUND", "Utilizador não encontrado.");
+      sendPanelError(res, 404, "USER_NOT_FOUND", "Usuário não encontrado.");
       return;
     }
     res.json({ user: updated });
@@ -375,7 +375,7 @@ export function createHubAdminRouter(opts: {
       await store.load();
       const uid = String(req.params.id ?? "").trim();
       if (!store.getUserById(uid)) {
-        sendPanelError(res, 404, "USER_NOT_FOUND", "Utilizador não encontrado.");
+        sendPanelError(res, 404, "USER_NOT_FOUND", "Usuário não encontrado.");
         return;
       }
       res.json({ tokens: store.listTokensForUser(uid) });
@@ -390,7 +390,7 @@ export function createHubAdminRouter(opts: {
       await store.load();
       const uid = String(req.params.id ?? "").trim();
       if (!store.getUserById(uid)) {
-        sendPanelError(res, 404, "USER_NOT_FOUND", "Utilizador não encontrado.");
+        sendPanelError(res, 404, "USER_NOT_FOUND", "Usuário não encontrado.");
         return;
       }
       try {
@@ -403,6 +403,21 @@ export function createHubAdminRouter(opts: {
         const msg = e instanceof Error ? e.message : String(e);
         sendPanelError(res, 400, "TOKEN_CREATE_ERROR", msg, e);
       }
+    },
+  );
+
+  r.get(
+    "/api/tokens/:tid/secret",
+    requireAdmin,
+    async (req: Request, res: Response) => {
+      await store.load();
+      const tid = String(req.params.tid ?? "").trim();
+      const t = store.getTokenById(tid);
+      if (!t) {
+        sendPanelError(res, 404, "TOKEN_NOT_FOUND", "Token não encontrado.");
+        return;
+      }
+      res.json({ secret: t.secret });
     },
   );
 
@@ -748,17 +763,18 @@ export function createHubAdminRouter(opts: {
         }
       : {}),
       nosql: mongo
-        ? "MongoDB: utilizadores + tokens + MCPs e registo (mcp_servers / mcp_templates) em documentos na coleção indicada."
-        : "Coleção mcp_servers + mcp_templates em ficheiro JSON (defina MCP_HUB_MONGODB_URI para MongoDB).",
+        ? "MongoDB: usuárioes + tokens + MCPs e registro (mcp_servers / mcp_templates) em documentos na coleção indicada."
+        : "Coleção mcp_servers + mcp_templates em arquivo JSON (defina MCP_HUB_MONGODB_URI para MongoDB).",
       hint:
-        "Cliente MCP: X-MCP-Hub-User-Token = secret de API token. Templates admin (mcp_templates): utilizador preenche connection.headers sobre a definição base.",
+        "Cliente MCP: X-MCP-Hub-User-Token = secret de API token. Templates admin (mcp_templates): usuário preenche connection.headers sobre a definição base.",
     });
   });
 
   r.get("/api/system-logs", requireAdmin, (req: Request, res: Response) => {
     const raw = Number(req.query.limit ?? "200");
     const limit = Number.isFinite(raw) ? Math.max(1, Math.min(500, raw)) : 200;
-    res.json({ entries: getSystemLogs(limit) });
+    const tokenId = typeof req.query.tokenId === "string" ? req.query.tokenId.trim() : undefined;
+    res.json({ entries: getSystemLogs(limit, tokenId || undefined) });
   });
 
   r.get("/app.js", async (_req: Request, res: Response) => {
@@ -786,7 +802,7 @@ export function createHubAdminRouter(opts: {
       res
         .status(500)
         .type("text/plain")
-        .send("Ficheiro public/hub-admin/index.html em falta.");
+        .send("Arquivo public/hub-admin/index.html em falta.");
     }
   });
 

@@ -5,7 +5,7 @@ export type HubConnectionOverrides = {
   env?: Record<string, string>;
 };
 
-/** Utilizador (sem credencial — tokens em `api_tokens`). */
+/** Usuário (sem credencial — tokens em `api_tokens`). */
 export type HubUser = {
   id: string;
   label: string;
@@ -25,7 +25,7 @@ export type ApiTokenRecord = {
  * MCP ligado a um token:
  * - URL directa (`url` + `headers`);
  * - catálogo global (`templateServerKey` + `connection`);
- * - template administrativo (`templateId` → documento em `mcp_templates`; o utilizador
+ * - template administrativo (`templateId` → documento em `mcp_templates`; o usuário
  *   ajusta sobretudo `connection.headers` para credenciais).
  */
 export type TokenMcpRecord = {
@@ -36,7 +36,7 @@ export type TokenMcpRecord = {
   headers?: Record<string, string>;
   env?: Record<string, string>;
   templateServerKey?: string;
-  /** _id do documento `mcp_templates` no ficheiro do registo. */
+  /** _id do documento `mcp_templates` no arquivo do registro. */
   templateId?: string;
   connection?: HubConnectionOverrides;
   createdAt: string;
