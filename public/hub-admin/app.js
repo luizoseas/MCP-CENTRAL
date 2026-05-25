@@ -91,7 +91,7 @@ function tryNavigateMcpsPicker() {
   const v = pick.value.trim();
   if (!v) {
     if (errEl) {
-      errEl.textContent = "Escolha uma API key na lista.";
+      errEl.textContent = "Escolha um acesso na lista.";
       errEl.classList.remove("hidden");
     }
     pick.focus();
@@ -232,7 +232,86 @@ function wireMcpFormPanel(root, tokenId, servers, tplList, edit) {
   };
   syncMode();
 
+  // Catálogo: filtro + marcar/desmarcar + contador
+  const catFilter = root.querySelector(".catalog-filter");
+  const catCheckboxes = root.querySelectorAll(".cat-cb");
+  const catCountEl = root.querySelector(".catalog-selected-count");
+  const catBtnAll = root.querySelector(".btn-cat-all");
+  const catBtnNone = root.querySelector(".btn-cat-none");
+
+  function updateCatCount() {
+    const checked = root.querySelectorAll(".cat-cb:checked").length;
+    if (catCountEl) catCountEl.textContent = `${checked} selecionado${checked !== 1 ? "s" : ""}`;
+  }
+
+  if (catFilter) {
+    catFilter.addEventListener("input", () => {
+      const q = catFilter.value.toLowerCase();
+      root.querySelectorAll(".catalog-cb-item").forEach((lbl) => {
+        const val = lbl.querySelector(".cat-cb").value.toLowerCase();
+        lbl.style.display = !q || val.includes(q) ? "" : "none";
+      });
+    });
+  }
+  if (catBtnAll) {
+    catBtnAll.addEventListener("click", () => {
+      root.querySelectorAll(".catalog-cb-item").forEach((lbl) => {
+        if (lbl.style.display !== "none") lbl.querySelector(".cat-cb").checked = true;
+      });
+      updateCatCount();
+    });
+  }
+  if (catBtnNone) {
+    catBtnNone.addEventListener("click", () => {
+      catCheckboxes.forEach((cb) => { cb.checked = false; });
+      updateCatCount();
+    });
+  }
+  catCheckboxes.forEach((cb) => cb.addEventListener("change", updateCatCount));
+
   saveBtn.addEventListener("click", async () => {
+    const statusEl = root.querySelector(".mcp-add-status");
+
+    if (modeSel.value === "catalog" && !edit) {
+      const selectedKeys = Array.from(root.querySelectorAll(".cat-cb:checked")).map((cb) => cb.value);
+      if (selectedKeys.length === 0) {
+        alert("Selecione pelo menos um servidor do catálogo.");
+        return;
+      }
+      const apiKey = (root.querySelector(".cat-hdr-apikey")?.value || "").trim();
+      const baseUrl = (root.querySelector(".cat-hdr-baseurl")?.value || "").trim();
+      const connection = { headers: {}, env: {} };
+      if (apiKey) connection.headers["X-Eship-Api-Key"] = apiKey;
+      if (baseUrl) connection.headers["X-Eship-Api-Base-Url"] = baseUrl;
+      const label = root.querySelector(".mcp-label").value.trim();
+      saveBtn.disabled = true;
+      if (statusEl) { statusEl.classList.remove("hidden"); statusEl.textContent = `Adicionando 0/${selectedKeys.length}...`; }
+      let ok = 0;
+      let errors = [];
+      for (const key of selectedKeys) {
+        try {
+          await api(`/tokens/${tokenId}/mcps`, {
+            method: "POST",
+            body: JSON.stringify({
+              label: label || undefined,
+              templateServerKey: key,
+              connection,
+            }),
+          });
+          ok++;
+          if (statusEl) statusEl.textContent = `Adicionando ${ok}/${selectedKeys.length}...`;
+        } catch (e) {
+          errors.push(`${key}: ${e.message}`);
+        }
+      }
+      saveBtn.disabled = false;
+      if (errors.length) {
+        alert(`${ok} adicionados, ${errors.length} erros:\n${errors.join("\n")}`);
+      }
+      await render();
+      return;
+    }
+
     let body = {};
     try {
       if (modeSel.value === "direct") {
@@ -246,7 +325,8 @@ function wireMcpFormPanel(root, tokenId, servers, tplList, edit) {
           env: Object.keys(env).length ? env : undefined,
         };
       } else if (modeSel.value === "catalog") {
-        const templateServerKey = root.querySelector(".mcp-catalog-key").value.trim();
+        const catKey = root.querySelector(".mcp-catalog-key");
+        const templateServerKey = catKey ? catKey.value.trim() : root.querySelectorAll(".cat-cb:checked")[0]?.value || "";
         const connection = JSON.parse(root.querySelector(".mcp-conn").value || "{}");
         body = {
           label: root.querySelector(".mcp-label").value.trim() || undefined,
@@ -347,7 +427,7 @@ async function renderSystemLogs(view, filterTokenId) {
     <div class="panel">
       <h3 class="section-title">Logs do sistema</h3>
       ${filterTokenId
-        ? `<p class="feedback feedback--ok" style="margin-bottom:0.75rem;">Filtrado por API key <code>${esc(filterTokenId)}</code>. <a href="#/logs">Ver todos os logs</a> · <a href="#/api-keys">Voltar às API keys</a></p>`
+        ? `<p class="feedback feedback--ok" style="margin-bottom:0.75rem;">Filtrado por acesso <code>${esc(filterTokenId)}</code>. <a href="#/logs">Ver todos os logs</a> · <a href="#/api-keys">Voltar aos acessos</a></p>`
         : ""}
       <p class="section-lead">Cada falha retorna <code>code</code> + <code>errorId</code>. Use ambos para rastrear no painel e no backend.</p>
 
@@ -486,8 +566,8 @@ async function renderClientes(view) {
       <p class="back-row"><a href="#/inicio">← Início</a></p>
       <h3 class="section-title">Antes de conectar o cliente</h3>
       <ol class="guide-steps">
-        <li><strong>No painel:</strong> crie um <a href="#/usuarios">usuário</a>, uma <a href="#/api-keys">API key</a> e os <a href="#/mcps">MCPs</a> vinculados a essa key (catálogo, URL ou template).</li>
-        <li><strong>Copie o secret</strong> da API key ao gerá-la — é o valor do header <code>X-MCP-Hub-User-Token</code> (não confundir com a senha do admin do painel).</li>
+        <li><strong>No painel:</strong> crie um <a href="#/usuarios">usuário</a>, um <a href="#/api-keys">acesso</a> e os <a href="#/mcps">MCPs</a> vinculados a esse acesso (catálogo, URL ou template).</li>
+        <li><strong>Copie o secret</strong> do acesso ao gerá-lo — é o valor do header <code>X-MCP-Hub-User-Token</code> (não confundir com a senha do admin do painel).</li>
         <li><strong>URL do hub MCP</strong> neste servidor (origem desta página + caminho configurado):<br /><code class="pre-block" style="margin-top:0.5rem;">${esc(endpoint)}</code>
           <span class="sub">O caminho do endpoint MCP é o configurado neste hub; o endereço acima reflete a sessão atual.</span></li>
       </ol>
@@ -497,7 +577,7 @@ async function renderClientes(view) {
       <ol class="guide-steps">
         <li>Abra <strong>Cursor</strong> → <strong>Settings</strong> → <strong>MCP</strong> (ou edite o arquivo de configuração MCP que o Cursor indicar na sua versão).</li>
         <li>Adicione um servidor <strong>HTTP / Streamable HTTP</strong> apontando para a URL acima.</li>
-        <li>Defina o header <code>X-MCP-Hub-User-Token</code> com o <strong>secret</strong> da API key.</li>
+        <li>Defina o header <code>X-MCP-Hub-User-Token</code> com o <strong>secret</strong> do acesso.</li>
         <li>Reinicie o MCP ou o Cursor se o cliente não listar ferramentas imediatamente.</li>
       </ol>
       <p class="section-lead" style="margin-top:1rem;">Exemplo de JSON (ajuste o nome <code>mcp-hub</code> se quiser):</p>
@@ -521,13 +601,110 @@ async function renderClientes(view) {
 
 async function renderUsuarios(view) {
   const { users } = await api("/users");
+  const PAGE_SIZE = 10;
+  let currentPage = 1;
+  let filterText = "";
+
+  function getFiltered() {
+    if (!filterText) return users;
+    const q = filterText.toLowerCase();
+    return users.filter(
+      (u) =>
+        (u.label || "").toLowerCase().includes(q) ||
+        (u.id || "").toLowerCase().includes(q),
+    );
+  }
+
+  function renderTable() {
+    const filtered = getFiltered();
+    const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+    if (currentPage > totalPages) currentPage = totalPages;
+    const start = (currentPage - 1) * PAGE_SIZE;
+    const pageItems = filtered.slice(start, start + PAGE_SIZE);
+
+    const tbody = pageItems
+      .map(
+        (u) => `
+      <tr>
+        <td>${esc(u.label)}</td>
+        <td><code>${esc(u.id)}</code></td>
+        <td>${esc(u.createdAt || "")}</td>
+        <td>
+          <div class="btn-row" style="margin:0;">
+            <a class="btn-link secondary" href="#/api-keys?user=${esc(u.id)}">Ver acessos</a>
+            <a class="btn-link secondary" href="#/usuarios/edit/${esc(u.id)}">Editar</a>
+            <button type="button" class="danger btn-del-u" data-id="${esc(u.id)}">Excluir</button>
+          </div>
+        </td>
+      </tr>`,
+      )
+      .join("");
+
+    let paginationHtml = "";
+    if (totalPages > 1) {
+      const pages = [];
+      for (let i = 1; i <= totalPages; i++) {
+        pages.push(
+          `<button type="button" class="btn-page${i === currentPage ? " active" : ""}" data-page="${i}">${i}</button>`,
+        );
+      }
+      paginationHtml = `
+        <div class="pagination">
+          <button type="button" class="btn-page-prev"${currentPage <= 1 ? " disabled" : ""}>&laquo; Anterior</button>
+          ${pages.join("")}
+          <button type="button" class="btn-page-next"${currentPage >= totalPages ? " disabled" : ""}>Próximo &raquo;</button>
+          <span class="pagination-info">${filtered.length} usuário${filtered.length !== 1 ? "s" : ""}</span>
+        </div>`;
+    } else {
+      paginationHtml = `<div class="pagination"><span class="pagination-info">${filtered.length} usuário${filtered.length !== 1 ? "s" : ""}</span></div>`;
+    }
+
+    const tableEl = view.querySelector("#usersTableBody");
+    const pagEl = view.querySelector("#usersPagination");
+    if (tableEl) tableEl.innerHTML = tbody;
+    if (pagEl) pagEl.innerHTML = paginationHtml;
+    bindTableEvents();
+  }
+
+  function bindTableEvents() {
+    view.querySelectorAll(".btn-del-u").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const id = btn.getAttribute("data-id");
+        if (!confirm("Excluir este usuário e todos os tokens e MCPs dele?")) return;
+        try {
+          await api(`/users/${id}`, { method: "DELETE" });
+          await render();
+        } catch (e) {
+          alert(e.message);
+        }
+      });
+    });
+    view.querySelectorAll(".btn-page").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        currentPage = parseInt(btn.getAttribute("data-page"), 10);
+        renderTable();
+      });
+    });
+    const prevBtn = view.querySelector(".btn-page-prev");
+    if (prevBtn)
+      prevBtn.addEventListener("click", () => {
+        if (currentPage > 1) { currentPage--; renderTable(); }
+      });
+    const nextBtn = view.querySelector(".btn-page-next");
+    if (nextBtn)
+      nextBtn.addEventListener("click", () => {
+        const totalPages = Math.max(1, Math.ceil(getFiltered().length / PAGE_SIZE));
+        if (currentPage < totalPages) { currentPage++; renderTable(); }
+      });
+  }
+
   view.innerHTML = `
     <div class="panel">
       <h3 class="section-title">Novo usuário</h3>
       <form id="formCreateUser" class="row cols-2">
         <div>
-          <label for="nuLabel">Etiqueta</label>
-          <input type="text" id="nuLabel" placeholder="Equipa A" autocomplete="organization" />
+          <label for="nuLabel">Nome</label>
+          <input type="text" id="nuLabel" placeholder="Equipe A" autocomplete="organization" />
         </div>
         <div class="btn-row" style="align-self:end;">
           <button type="submit">Criar</button>
@@ -537,31 +714,28 @@ async function renderUsuarios(view) {
     </div>
     <div class="panel">
       <h3 class="section-title">Usuários</h3>
+      <div class="log-filters" style="margin-bottom:0.75rem;">
+        <div class="log-filter-group">
+          <label for="userFilterText">Buscar</label>
+          <input type="text" id="userFilterText" placeholder="Nome ou ID..." />
+        </div>
+      </div>
       <div class="data-table-wrap">
         <table class="data-table">
-          <thead><tr><th>Etiqueta</th><th>ID</th><th>Criado</th><th>Ações</th></tr></thead>
-          <tbody>
-            ${users
-              .map(
-                (u) => `
-              <tr>
-                <td>${esc(u.label)}</td>
-                <td><code>${esc(u.id)}</code></td>
-                <td>${esc(u.createdAt || "")}</td>
-                <td>
-                  <div class="btn-row" style="margin:0;">
-                    <a class="btn-link secondary" href="#/api-keys?user=${esc(u.id)}">Ver API keys</a>
-                    <a class="btn-link secondary" href="#/usuarios/edit/${esc(u.id)}">Editar</a>
-                    <button type="button" class="danger btn-del-u" data-id="${esc(u.id)}">Excluir</button>
-                  </div>
-                </td>
-              </tr>`,
-              )
-              .join("")}
-          </tbody>
+          <thead><tr><th>Nome</th><th>ID</th><th>Criado</th><th>Ações</th></tr></thead>
+          <tbody id="usersTableBody"></tbody>
         </table>
       </div>
+      <div id="usersPagination"></div>
     </div>`;
+
+  renderTable();
+
+  $("userFilterText").addEventListener("input", (e) => {
+    filterText = e.target.value.trim();
+    currentPage = 1;
+    renderTable();
+  });
 
   $("formCreateUser").addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -578,19 +752,6 @@ async function renderUsuarios(view) {
       $("uErr").classList.remove("hidden");
     }
   });
-
-  view.querySelectorAll(".btn-del-u").forEach((btn) => {
-    btn.addEventListener("click", async () => {
-      const id = btn.getAttribute("data-id");
-      if (!confirm("Excluir este usuário e todos os tokens e MCPs dele?")) return;
-      try {
-        await api(`/users/${id}`, { method: "DELETE" });
-        await render();
-      } catch (e) {
-        alert(e.message);
-      }
-    });
-  });
 }
 
 async function renderUserEdit(view, userId) {
@@ -605,7 +766,7 @@ async function renderUserEdit(view, userId) {
       <p class="back-row"><a href="#/usuarios">← Usuários</a></p>
       <h3 class="section-title">Editar usuário</h3>
       <p class="sub">ID: <code>${esc(u.id)}</code></p>
-      <label for="editULabel">Etiqueta</label>
+      <label for="editULabel">Nome</label>
       <input type="text" id="editULabel" value="${esc(u.label)}" autocomplete="organization" />
       <div class="btn-row">
         <button type="button" id="btnSaveUser">Salvar</button>
@@ -617,7 +778,7 @@ async function renderUserEdit(view, userId) {
     $("editUErr").classList.add("hidden");
     const lab = $("editULabel").value.trim();
     if (!lab) {
-      $("editUErr").textContent = "A etiqueta não pode ficar vazia.";
+      $("editUErr").textContent = "O nome não pode ficar vazio.";
       $("editUErr").classList.remove("hidden");
       return;
     }
@@ -647,7 +808,7 @@ async function renderTemplates(view) {
       <h3 class="section-title">Novo template</h3>
       <div class="row cols-2">
         <div><label for="tplKey">Chave única</label><input type="text" id="tplKey" placeholder="meu-template" /></div>
-        <div><label for="tplLabel">Etiqueta</label><input type="text" id="tplLabel" placeholder="Nome legível" /></div>
+        <div><label for="tplLabel">Nome</label><input type="text" id="tplLabel" placeholder="Nome legível" /></div>
       </div>
       <label for="tplDesc">Descrição (opcional)</label>
       <input type="text" id="tplDesc" placeholder="Instruções para quem preenche os headers." />
@@ -744,7 +905,7 @@ async function renderTemplateEdit(view, templateId) {
       <h3 class="section-title">Editar template</h3>
       <div class="row cols-2">
         <div><label for="etplKey">Chave única</label><input type="text" id="etplKey" value="${esc(doc.key)}" /></div>
-        <div><label for="etplLabel">Etiqueta</label><input type="text" id="etplLabel" value="${esc(doc.label)}" /></div>
+        <div><label for="etplLabel">Nome</label><input type="text" id="etplLabel" value="${esc(doc.label)}" /></div>
       </div>
       <label for="etplDesc">Descrição (opcional)</label>
       <input type="text" id="etplDesc" value="${esc(doc.description || "")}" />
@@ -804,7 +965,7 @@ async function renderCatalogo(view) {
       <h3 class="section-title">Novo documento no registro</h3>
       <div class="row cols-2">
         <div><label for="regKey">Chave</label><input type="text" id="regKey" /></div>
-        <div><label for="regLabel">Etiqueta</label><input type="text" id="regLabel" /></div>
+        <div><label for="regLabel">Nome</label><input type="text" id="regLabel" /></div>
       </div>
       <label for="regDef">Definição MCP (JSON)</label>
       <textarea id="regDef" rows="10">${esc(defSample)}</textarea>
@@ -887,7 +1048,7 @@ async function renderCatalogEdit(view, docId) {
       <p class="sub">_id: <code>${esc(doc._id)}</code></p>
       <div class="row cols-2">
         <div><label for="eregKey">Chave</label><input type="text" id="eregKey" value="${esc(doc.key)}" /></div>
-        <div><label for="eregLabel">Etiqueta</label><input type="text" id="eregLabel" value="${esc(doc.label || "")}" /></div>
+        <div><label for="eregLabel">Nome</label><input type="text" id="eregLabel" value="${esc(doc.label || "")}" /></div>
       </div>
       <label for="eregDef">Definição MCP (JSON)</label>
       <textarea id="eregDef" rows="14">${esc(JSON.stringify(doc.def, null, 2))}</textarea>
@@ -938,81 +1099,83 @@ async function renderApiKeys(view, preFilterUserId) {
   const secretBanner = pendingNewKeySecret;
   pendingNewKeySecret = null;
   const { users } = await api("/users");
-  const rows = flattenTokens(users);
-  const hasUsers = (users || []).length > 0;
-  view.innerHTML = `
-    <div class="panel">
-      <h3 class="section-title">Nova API key</h3>
-      ${
-        hasUsers
-          ? ""
-          : `<p class="feedback" role="status">Cria primeiro um usuário em <a href="#/usuarios">Usuários</a>.</p>`
+  const allRows = flattenTokens(users);
+
+  const ownerUser = preFilterUserId
+    ? (users || []).find((u) => sameEntityId(u.id, preFilterUserId))
+    : null;
+  const showCreate = !!ownerUser;
+
+  const PAGE_SIZE = 10;
+  let currentPage = 1;
+  let filterText = "";
+
+  function getFiltered() {
+    let list = preFilterUserId
+      ? allRows.filter((t) => t.userId === preFilterUserId)
+      : allRows;
+    if (filterText) {
+      const q = filterText.toLowerCase();
+      list = list.filter(
+        (t) =>
+          (t.label || "").toLowerCase().includes(q) ||
+          (t.id || "").toLowerCase().includes(q),
+      );
+    }
+    return list;
+  }
+
+  function renderKeyTable() {
+    const filtered = getFiltered();
+    const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+    if (currentPage > totalPages) currentPage = totalPages;
+    const start = (currentPage - 1) * PAGE_SIZE;
+    const pageItems = filtered.slice(start, start + PAGE_SIZE);
+
+    const tbodyHtml = pageItems.length
+      ? pageItems
+          .map(
+            (t) => `
+        <tr>
+          <td>${esc(t.label)}</td>
+          <td><code>${esc(t.id)}</code></td>
+          <td>${esc(t.createdAt || "")}</td>
+          <td>
+            <div class="btn-row" style="margin:0;">
+              <button type="button" class="secondary btn-reveal" data-tid="${esc(t.id)}">Ver secret</button>
+              <a class="btn-link secondary" href="#/mcps/${esc(t.id)}">MCPs</a>
+              <a class="btn-link secondary" href="#/logs?token=${esc(t.id)}">Logs</a>
+              <button type="button" class="danger btn-revoke" data-uid="${esc(t.userId)}" data-tid="${esc(t.id)}">Revogar</button>
+            </div>
+          </td>
+        </tr>`,
+          )
+          .join("")
+      : '<tr><td colspan="4" class="sub">Nenhum acesso encontrado.</td></tr>';
+
+    let paginationHtml = "";
+    if (totalPages > 1) {
+      const pages = [];
+      for (let i = 1; i <= totalPages; i++) {
+        pages.push(
+          `<button type="button" class="btn-page${i === currentPage ? " active" : ""}" data-page="${i}">${i}</button>`,
+        );
       }
-      <div class="row cols-2">
-        <div>
-          <label for="keyUser">Usuário</label>
-          <select id="keyUser" ${hasUsers ? "" : "disabled"}>${(users || [])
-            .map((u) => `<option value="${esc(u.id)}">${esc(u.label)}</option>`)
-            .join("")}</select>
-        </div>
-        <div>
-          <label for="keyLabel">Etiqueta do token</label>
-          <input type="text" id="keyLabel" placeholder="default" ${hasUsers ? "" : "disabled"} />
-        </div>
-      </div>
-      <div class="btn-row"><button type="button" id="btnKeyCreate" ${hasUsers ? "" : "disabled"}>Gerar API key</button></div>
-      <div id="keySecretWrap" class="${secretBanner ? "" : "hidden"}">
-        <p class="feedback feedback--ok">Guarda o <strong>secret</strong> — não volta a aparecer. Usa no cabeçalho <code>X-MCP-Hub-User-Token</code>.</p>
-        <div class="token-box" id="keySecretBox" tabindex="0" role="status">${secretBanner ? esc(secretBanner) : ""}</div>
-      </div>
-      <p id="keyErr" class="feedback feedback--err hidden" role="alert"></p>
-    </div>
-    <div class="panel">
-      <h3 class="section-title">API keys existentes</h3>
-      <div class="log-filters" style="margin-bottom:0.75rem;">
-        <div class="log-filter-group">
-          <label for="keyFilterUser">Usuário</label>
-          <select id="keyFilterUser">
-            <option value="">Todos</option>
-            ${(users || []).map((u) => `<option value="${esc(u.id)}"${u.id === preFilterUserId ? " selected" : ""}>${esc(u.label)}</option>`).join("")}
-          </select>
-        </div>
-      </div>
-      <p class="sub" id="keyCount" style="margin:0 0 0.5rem;"></p>
-      <div class="data-table-wrap">
-        <table class="data-table">
-          <thead><tr><th>Usuário</th><th>Etiqueta</th><th>ID do token</th><th>Criado</th><th></th></tr></thead>
-          <tbody id="keyTbody"></tbody>
-        </table>
-      </div>
-    </div>`;
+      paginationHtml = `
+        <div class="pagination">
+          <button type="button" class="btn-page-prev"${currentPage <= 1 ? " disabled" : ""}>&laquo; Anterior</button>
+          ${pages.join("")}
+          <button type="button" class="btn-page-next"${currentPage >= totalPages ? " disabled" : ""}>Próximo &raquo;</button>
+          <span class="pagination-info">${filtered.length} acesso${filtered.length !== 1 ? "s" : ""}</span>
+        </div>`;
+    } else {
+      paginationHtml = `<div class="pagination"><span class="pagination-info">${filtered.length} acesso${filtered.length !== 1 ? "s" : ""}</span></div>`;
+    }
 
-  const allRows = rows;
-
-  function renderKeyRows() {
-    const filterUid = $("keyFilterUser").value;
-    const filtered = filterUid ? allRows.filter((t) => t.userId === filterUid) : allRows;
     const tbody = $("keyTbody");
-    tbody.innerHTML = filtered
-      .map(
-        (t) => `
-      <tr>
-        <td>${esc(t.userLabel)}</td>
-        <td>${esc(t.label)}</td>
-        <td><code>${esc(t.id)}</code></td>
-        <td>${esc(t.createdAt || "")}</td>
-        <td>
-          <div class="btn-row" style="margin:0;">
-            <button type="button" class="secondary btn-reveal" data-tid="${esc(t.id)}">Ver secret</button>
-            <a class="btn-link secondary" href="#/mcps/${esc(t.id)}">MCPs</a>
-            <a class="btn-link secondary" href="#/logs?token=${esc(t.id)}">Logs</a>
-            <button type="button" class="danger btn-revoke" data-uid="${esc(t.userId)}" data-tid="${esc(t.id)}">Revogar</button>
-          </div>
-        </td>
-      </tr>`,
-      )
-      .join("") || '<tr><td colspan="5" class="sub">Nenhuma API key para este usuário.</td></tr>';
-    $("keyCount").textContent = `${filtered.length} de ${allRows.length} tokens`;
+    const pagEl = $("keysPagination");
+    if (tbody) tbody.innerHTML = tbodyHtml;
+    if (pagEl) pagEl.innerHTML = paginationHtml;
     wireKeyTableButtons();
   }
 
@@ -1043,7 +1206,7 @@ async function renderApiKeys(view, preFilterUserId) {
       btn.addEventListener("click", async () => {
         const uid = btn.getAttribute("data-uid");
         const tid = btn.getAttribute("data-tid");
-        if (!confirm("Revogar esta API key e todos os MCPs associados?")) return;
+        if (!confirm("Revogar este acesso e todos os MCPs associados?")) return;
         try {
           await api(`/users/${uid}/tokens/${tid}`, { method: "DELETE" });
           await render();
@@ -1052,18 +1215,79 @@ async function renderApiKeys(view, preFilterUserId) {
         }
       });
     });
+
+    view.querySelectorAll(".btn-page").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        currentPage = parseInt(btn.getAttribute("data-page"), 10);
+        renderKeyTable();
+      });
+    });
+    const prevBtn = view.querySelector(".btn-page-prev");
+    if (prevBtn)
+      prevBtn.addEventListener("click", () => {
+        if (currentPage > 1) { currentPage--; renderKeyTable(); }
+      });
+    const nextBtn = view.querySelector(".btn-page-next");
+    if (nextBtn)
+      nextBtn.addEventListener("click", () => {
+        const totalPages = Math.max(1, Math.ceil(getFiltered().length / PAGE_SIZE));
+        if (currentPage < totalPages) { currentPage++; renderKeyTable(); }
+      });
   }
 
-  $("keyFilterUser").addEventListener("change", renderKeyRows);
-  renderKeyRows();
+  view.innerHTML = `
+    ${showCreate ? `<div class="panel">
+      <p class="back-row"><a href="#/usuarios">← Usuários</a></p>
+      <h3 class="section-title">Novo acesso para ${esc(ownerUser.label)}</h3>
+      <div class="row cols-2">
+        <div>
+          <label for="keyLabel">Nome do acesso</label>
+          <input type="text" id="keyLabel" placeholder="default" />
+        </div>
+        <div class="btn-row" style="align-self:end;">
+          <button type="button" id="btnKeyCreate">Gerar acesso</button>
+        </div>
+      </div>
+      <div id="keySecretWrap" class="${secretBanner ? "" : "hidden"}">
+        <p class="feedback feedback--ok">Guarde o <strong>secret</strong> — não volta a aparecer. Use no cabeçalho <code>X-MCP-Hub-User-Token</code>.</p>
+        <div class="token-box" id="keySecretBox" tabindex="0" role="status">${secretBanner ? esc(secretBanner) : ""}</div>
+      </div>
+      <p id="keyErr" class="feedback feedback--err hidden" role="alert"></p>
+    </div>` : ""}
+    <div class="panel">
+      ${!showCreate ? '<p class="back-row"><a href="#/usuarios">← Usuários</a></p>' : ""}
+      <h3 class="section-title">Acessos${ownerUser ? ` de ${esc(ownerUser.label)}` : ""}</h3>
+      <div class="log-filters" style="margin-bottom:0.75rem;">
+        <div class="log-filter-group">
+          <label for="keyFilterText">Buscar</label>
+          <input type="text" id="keyFilterText" placeholder="Nome ou ID do acesso..." />
+        </div>
+      </div>
+      <div class="data-table-wrap">
+        <table class="data-table">
+          <thead><tr><th>Nome</th><th>ID do acesso</th><th>Criado</th><th></th></tr></thead>
+          <tbody id="keyTbody"></tbody>
+        </table>
+      </div>
+      <div id="keysPagination"></div>
+    </div>`;
 
-  $("btnKeyCreate").onclick = async () => {
-    $("keyErr").classList.add("hidden");
-    $("keySecretWrap").classList.add("hidden");
-    try {
-      const j = await api(`/users/${$("keyUser").value}/tokens`, {
-        method: "POST",
-        body: JSON.stringify({ label: $("keyLabel").value || "default" }),
+  renderKeyTable();
+
+  $("keyFilterText").addEventListener("input", (e) => {
+    filterText = e.target.value.trim();
+    currentPage = 1;
+    renderKeyTable();
+  });
+
+  if (showCreate) {
+    $("btnKeyCreate").onclick = async () => {
+      $("keyErr").classList.add("hidden");
+      $("keySecretWrap").classList.add("hidden");
+      try {
+        const j = await api(`/users/${ownerUser.id}/tokens`, {
+          method: "POST",
+          body: JSON.stringify({ label: $("keyLabel").value || "default" }),
       });
       pendingNewKeySecret = j.secret;
       await render();
@@ -1072,7 +1296,7 @@ async function renderApiKeys(view, preFilterUserId) {
       $("keyErr").classList.remove("hidden");
     }
   };
-
+  }
 }
 
 async function renderMcpEdit(view, tokenId, mcpId) {
@@ -1117,7 +1341,7 @@ async function renderMcpEdit(view, tokenId, mcpId) {
           </select>
         </div>
         <div>
-          <label class="label-like">Etiqueta (opcional)</label>
+          <label class="label-like">Nome (opcional)</label>
           <input type="text" class="mcp-label" value="${esc(m.label || "")}" placeholder="ex. produção" />
         </div>
       </div>
@@ -1167,12 +1391,12 @@ async function renderMcps(view, tokenId) {
   if (!tokenId) {
     view.innerHTML = `
       <div class="panel">
-        <h3 class="section-title">Selecionar API key</h3>
-        <p class="section-lead">Escolha o token para ver e gerir os MCPs vinculados, adicionar novos ou editar os existentes.</p>
+        <h3 class="section-title">Selecionar acesso</h3>
+        <p class="section-lead">Escolha o acesso para ver e gerenciar os MCPs vinculados, adicionar novos ou editar os existentes.</p>
         <form id="mcpsPickForm" class="mcps-pick-form">
           <label for="pickTok">Token</label>
           <select id="pickTok" name="token" aria-describedby="pickTokErr">
-            <option value="">— Escolhar —</option>
+            <option value="">— Escolha —</option>
             ${flat
               .map(
                 (t) =>
@@ -1224,7 +1448,7 @@ async function renderMcps(view, tokenId) {
   view.innerHTML = `
     <div class="panel">
       <p class="section-lead">Token: <strong>${esc(tok ? `${tok.userLabel} · ${tok.label}` : tokenId)}</strong>
-        · <a href="#/mcps">Trocar API key</a> · <a href="#/clientes">Como ligar no Cursor / Claude</a></p>
+        · <a href="#/mcps">Trocar acesso</a> · <a href="#/clientes">Como conectar?</a></p>
       <h3 class="section-title">MCPs vinculados</h3>
       <ul class="links">${mcpRows || '<li class="sub">Nenhum MCP.</li>'}</ul>
     </div>
@@ -1240,7 +1464,7 @@ async function renderMcps(view, tokenId) {
           </select>
         </div>
         <div>
-          <label class="label-like">Etiqueta (opcional)</label>
+          <label class="label-like">Nome (opcional)</label>
           <input type="text" class="mcp-label" placeholder="ex. produção" />
         </div>
       </div>
@@ -1253,10 +1477,28 @@ async function renderMcps(view, tokenId) {
         <textarea class="mcp-env" rows="2">{}</textarea>
       </div>
       <div class="mcp-catalog-fields hidden">
-        <label class="label-like">Chave no hub</label>
-        <select class="mcp-catalog-key">${srvOpts}</select>
-        <label class="label-like" style="margin-top:0.65rem;">Connection (JSON)</label>
-        <textarea class="mcp-conn" rows="4">${esc(JSON.stringify({ headers: {}, env: {} }, null, 2))}</textarea>
+        <label class="label-like">Servidores do catálogo</label>
+        <div class="catalog-multi-wrap">
+          <div class="catalog-multi-toolbar">
+            <button type="button" class="btn-cat-all secondary" style="font-size:0.75rem;padding:0.2rem 0.5rem;min-height:0;">Marcar todos</button>
+            <button type="button" class="btn-cat-none secondary" style="font-size:0.75rem;padding:0.2rem 0.5rem;min-height:0;">Desmarcar todos</button>
+            <input type="text" class="catalog-filter" placeholder="Filtrar servidores..." style="font-size:0.75rem;padding:0.3rem 0.5rem;flex:1;min-width:120px;" />
+          </div>
+          <div class="catalog-checkbox-list">
+            ${(servers || []).map((s) => `<label class="catalog-cb-item"><input type="checkbox" value="${esc(s)}" class="cat-cb" />${esc(s)}</label>`).join("")}
+          </div>
+          <p class="sub catalog-selected-count" style="margin:0.35rem 0 0;">0 selecionados</p>
+        </div>
+        <div class="row cols-2" style="margin-top:0.65rem;">
+          <div>
+            <label class="label-like" for="catApiKey">X-Eship-Api-Key</label>
+            <input type="text" id="catApiKey" class="cat-hdr-apikey" placeholder="Chave da API e-Ship" />
+          </div>
+          <div>
+            <label class="label-like" for="catBaseUrl">X-Eship-Api-Base-Url</label>
+            <input type="text" id="catBaseUrl" class="cat-hdr-baseurl" placeholder="https://api.eship.com.br" />
+          </div>
+        </div>
       </div>
       <div class="mcp-admintpl-fields hidden">
         <label class="label-like">Template</label>
@@ -1267,6 +1509,7 @@ async function renderMcps(view, tokenId) {
         <textarea class="mcp-access-headers" rows="10">${esc(MCP_ADMIN_ACCESS_JSON_DEFAULT)}</textarea>
       </div>
       <div class="btn-row"><button type="button" class="btn-add-mcp">Adicionar MCP</button></div>
+      <p class="mcp-add-status sub hidden" role="status"></p>
     </div>`;
 
   const addRoot = view.querySelector(".mcp-add-root");
@@ -1316,7 +1559,7 @@ async function buildBreadcrumb(route) {
         crumbs.push({ label: u ? u.label : uid, href: `#/usuarios/edit/${uid}` });
       } catch { crumbs.push({ label: uid }); }
     }
-    crumbs.push({ label: "API keys" });
+    crumbs.push({ label: "Acessos" });
     return crumbs;
   }
 
@@ -1329,7 +1572,7 @@ async function buildBreadcrumb(route) {
           const tok = (u.tokens || []).find((t) => t.id === route.tokenId);
           if (tok) {
             crumbs.push({ label: u.label, href: `#/usuarios/edit/${u.id}` });
-            crumbs.push({ label: `API key: ${tok.label}`, href: `#/api-keys?user=${u.id}` });
+            crumbs.push({ label: `Acesso: ${tok.label}`, href: `#/api-keys?user=${u.id}` });
             break;
           }
         }
@@ -1350,7 +1593,7 @@ async function buildBreadcrumb(route) {
           const tok = (u.tokens || []).find((t) => t.id === route.tokenId);
           if (tok) {
             crumbs.push({ label: u.label, href: `#/usuarios/edit/${u.id}` });
-            crumbs.push({ label: `API key: ${tok.label}`, href: `#/api-keys?user=${u.id}` });
+            crumbs.push({ label: `Acesso: ${tok.label}`, href: `#/api-keys?user=${u.id}` });
             break;
           }
         }
@@ -1371,7 +1614,7 @@ async function buildBreadcrumb(route) {
           const tok = (u.tokens || []).find((t) => t.id === tokenFilter);
           if (tok) {
             crumbs.push({ label: u.label, href: `#/usuarios/edit/${u.id}` });
-            crumbs.push({ label: `API key: ${tok.label}`, href: `#/api-keys?user=${u.id}` });
+            crumbs.push({ label: `Acesso: ${tok.label}`, href: `#/api-keys?user=${u.id}` });
             break;
           }
         }
