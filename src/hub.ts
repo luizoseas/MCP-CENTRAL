@@ -222,13 +222,20 @@ function oauthPublicOrigin(req: Request): string {
   return `${scheme}://${host}`;
 }
 
-/** Falha com lista completa: variáveis em falta por servidor (chaves WMS/TAR vêem ESHIP_API_KEY_WMS / _TAR). */
-function assertEnvPlaceholdersForConfig(
+/**
+ * Remove servidores do config cujos placeholders não podem ser expandidos.
+ * Registra no log cada MCP removido (com nome legível) e retorna o config limpo.
+ * Na inicialização do processo (sem token), lança erro se faltar variável.
+ */
+function stripServersWithMissingPlaceholders(
   config: HubConfig,
   baseEnv: EnvLookup,
   extraByServer?: Record<string, EnvLookup>,
-): void {
-  const varToServers = new Map<string, Set<string>>();
+  opts?: { tokenId?: string; throwOnMissing?: boolean },
+): HubConfig {
+  const serversToRemove = new Set<string>();
+  const missingByServer = new Map<string, string[]>();
+
   for (const [serverKey, def] of Object.entries(config.mcpServers)) {
     const envK: EnvLookup = {
       ...effectiveEnvForUpstream(baseEnv, serverKey),
@@ -246,44 +253,55 @@ function assertEnvPlaceholdersForConfig(
             ...Object.values(def.env ?? {}),
             ...(def.cwd ? [def.cwd] : []),
           ];
-    const names = new Set<string>();
+    const missingVars: string[] = [];
     for (const b of blobs) {
       for (const n of envVarNamesInString(b)) {
-        names.add(n);
-      }
-    }
-    for (const n of names) {
-      if (getEnvValue(envK, n) === undefined) {
-        let set = varToServers.get(n);
-        if (!set) {
-          set = new Set();
-          varToServers.set(n, set);
+        if (getEnvValue(envK, n) === undefined) {
+          missingVars.push(n);
         }
-        set.add(serverKey);
       }
     }
+    if (missingVars.length > 0) {
+      serversToRemove.add(serverKey);
+      missingByServer.set(serverKey, [...new Set(missingVars)]);
+    }
   }
-  if (varToServers.size === 0) {
-    return;
+
+  if (serversToRemove.size === 0) {
+    return config;
   }
-  const missing = [...varToServers.entries()].map(([name, servers]) => ({
-    name,
-    servers: [...servers].sort(),
-  }));
-  const blocks = missing.map(
-    (m) =>
-      `  • ${m.name}\n    servidores: ${m.servers.join(", ")} (${m.servers.length})`,
-  );
-  throw new Error(
-    [
-      "Faltam valores para expandir placeholders no mcp-hub.config.json:",
-      ...blocks,
-      "",
-      "Modo HTTP: URL base (X-Eship-Api-Base-Url / X-Api-Base-Url ou _meta).",
-      "Chaves: X-Eship-Api-Key, ou só WMS: X-Eship-Api-Key-WMS (ou API-WMS), só TAR: X-Eship-Api-Key-TAR (ou APIKEY-TAR), ambos módulos: X-Eship-Api-Key-WMS + X-Eship-Api-Key-TAR.",
-      "Modo stdio: ESHIP_API_KEY_WMS / ESHIP_API_KEY_TAR / ESHIP_* no env do processo.",
-    ].join("\n"),
-  );
+
+  if (opts?.throwOnMissing) {
+    const blocks = [...missingByServer.entries()].map(
+      ([srv, vars]) => `  • ${vars.join(", ")} → servidor: ${srv}`,
+    );
+    throw new Error(
+      [
+        "Faltam valores para expandir placeholders no mcp-hub.config.json:",
+        ...blocks,
+      ].join("\n"),
+    );
+  }
+
+  for (const [serverKey, vars] of missingByServer) {
+    const msg = `MCP "${serverKey}" ignorado — faltam variáveis: ${vars.join(", ")}. Suas tools não estarão disponíveis.`;
+    log(msg);
+    pushSystemLog({
+      level: "error",
+      source: "mcp",
+      code: "MCP_PLACEHOLDER_MISSING",
+      message: msg,
+      tokenId: opts?.tokenId,
+    });
+  }
+
+  const cleaned: Record<string, ServerDef> = {};
+  for (const [k, v] of Object.entries(config.mcpServers)) {
+    if (!serversToRemove.has(k)) {
+      cleaned[k] = v;
+    }
+  }
+  return { mcpServers: cleaned };
 }
 
 function expandEnvPlaceholders(value: string, env: EnvLookup): string {
@@ -644,8 +662,19 @@ async function resolveHubConfigForHttpSession(
   fullConfig: HubConfig,
   moduleTag: HubModuleTag | null,
   store: HubUserStore,
+  bearerLookup?: (token: string) => string | undefined,
 ): Promise<ResolvedHubConfig> {
-  const tokenHdr = headerOne(req, "x-mcp-hub-user-token");
+  let tokenHdr = headerOne(req, "x-mcp-hub-user-token");
+
+  if (!tokenHdr && bearerLookup) {
+    const authHeader = headerOne(req, "authorization");
+    if (authHeader?.startsWith("Bearer ")) {
+      const bearerVal = authHeader.slice(7).trim();
+      const secret = bearerLookup(bearerVal);
+      if (secret) tokenHdr = secret;
+    }
+  }
+
   if (!tokenHdr) {
     const hubCfgBase = sessionHubConfig(fullConfig, moduleTag);
     return { ok: true, hubCfg: hubCfgBase };
@@ -1208,13 +1237,33 @@ async function serveHttp() {
     );
   }
 
-  const oauthAuthCodeStub = "mcp-hub-oauth-stub";
-  const oauthRefreshStub = "mcp-hub-refresh-stub";
-  const oauthAccessStub =
-    process.env.MCP_HUB_OAUTH_STUB_ACCESS_TOKEN?.trim() || "mcp-hub-oauth-access-stub";
+  // --- OAuth: armazenamento in-memory ---
+  const OAUTH_SESSION_TTL = 10 * 60 * 1000; // 10 min
+  const OAUTH_CODE_TTL = 5 * 60 * 1000;     // 5 min
+  const OAUTH_ACCESS_TTL = 24 * 60 * 60 * 1000; // 24h
 
-  // Cursor / MCP V2: descoberta OAuth (RFC 9728 + 8414) + DCR + código de autorização.
-  // Facade mínima para o cliente concluir o fluxo sem IdP real; credenciais e-ship continuam nos cabeçalhos / initialize.
+  type OAuthSession = { redirectUri: string; state: string; clientId: string; codeChallengeMethod?: string; codeChallenge?: string; createdAt: number };
+  type OAuthCode = { tokenId: string; apiKeySecret: string; redirectUri: string; codeChallenge?: string; codeChallengeMethod?: string; createdAt: number };
+  type OAuthAccessEntry = { tokenId: string; apiKeySecret: string; createdAt: number };
+
+  const oauthSessions = new Map<string, OAuthSession>();
+  const oauthCodes = new Map<string, OAuthCode>();
+  const oauthAccessTokens = new Map<string, OAuthAccessEntry>();
+
+  function purgeExpiredOAuth() {
+    const now = Date.now();
+    for (const [k, v] of oauthSessions) if (now - v.createdAt > OAUTH_SESSION_TTL) oauthSessions.delete(k);
+    for (const [k, v] of oauthCodes) if (now - v.createdAt > OAUTH_CODE_TTL) oauthCodes.delete(k);
+    for (const [k, v] of oauthAccessTokens) if (now - v.createdAt > OAUTH_ACCESS_TTL) oauthAccessTokens.delete(k);
+  }
+
+  function resolveTokenIdFromBearer(bearerToken: string): string | undefined {
+    purgeExpiredOAuth();
+    const entry = oauthAccessTokens.get(bearerToken);
+    return entry?.apiKeySecret;
+  }
+
+  // --- OAuth: discovery + DCR ---
   app.get(/^\/\.well-known\/oauth-protected-resource(\/.*)?$/, (req: Request, res: Response) => {
     const resourceOverride = process.env.MCP_HUB_OAUTH_RESOURCE_URL?.trim();
     const origin = oauthPublicOrigin(req);
@@ -1283,9 +1332,13 @@ async function serveHttp() {
     });
   });
 
+  // --- OAuth: authorize → login page ---
   app.get("/oauth/authorize", (req: Request, res: Response) => {
     const redirectUri = String(req.query.redirect_uri ?? "");
     const state = String(req.query.state ?? "");
+    const clientId = String(req.query.client_id ?? "");
+    const codeChallenge = String(req.query.code_challenge ?? "");
+    const codeChallengeMethod = String(req.query.code_challenge_method ?? "");
     try {
       const target = new URL(redirectUri);
       const proto = target.protocol;
@@ -1297,54 +1350,219 @@ async function serveHttp() {
       ) {
         throw new Error("scheme");
       }
-      target.searchParams.set("code", oauthAuthCodeStub);
-      if (state) {
-        target.searchParams.set("state", state);
-      }
-      res.redirect(302, target.toString());
     } catch {
       res.status(400).type("application/json").json({
         error: "invalid_request",
-        error_description: "redirect_uri inválido ou em falta.",
+        error_description: "redirect_uri inválido.",
       });
+      return;
     }
+    purgeExpiredOAuth();
+    const sessionId = randomUUID();
+    oauthSessions.set(sessionId, {
+      redirectUri,
+      state,
+      clientId,
+      codeChallenge: codeChallenge || undefined,
+      codeChallengeMethod: codeChallengeMethod || undefined,
+      createdAt: Date.now(),
+    });
+    const origin = oauthPublicOrigin(req);
+    res.redirect(302, `${origin}/oauth/login?session=${encodeURIComponent(sessionId)}`);
   });
 
+  // --- OAuth: login page HTML ---
+  app.get("/oauth/login", (req: Request, res: Response) => {
+    const sessionId = String(req.query.session ?? "");
+    const error = String(req.query.error ?? "");
+    if (!sessionId || !oauthSessions.has(sessionId)) {
+      res.status(400).type("text/html").send("<h1>Sessão expirada</h1><p>Tente conectar novamente pelo Cursor/Claude.</p>");
+      return;
+    }
+    const errorHtml = error
+      ? `<p style="color:#b91c1c;background:#fef2f2;border:1px solid rgba(185,28,28,0.28);padding:0.65rem 0.85rem;border-radius:6px;font-size:0.875rem;margin-bottom:1rem;">${error === "invalid" ? "API key inválida ou revogada. Verifique e tente novamente." : "Erro ao autenticar."}</p>`
+      : "";
+    res.type("text/html").send(`<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>MCP Hub — Autenticação</title>
+  <link rel="icon" href="https://eship.com.br/wp-content/uploads/circulo-favicon.svg" type="image/svg+xml"/>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;600;700&display=swap" rel="stylesheet"/>
+  <style>
+    *,*::before,*::after{box-sizing:border-box}
+    body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;font-family:"DM Sans",system-ui,sans-serif;background:#eef1f4;color:#1a1f26}
+    .card{background:#fff;border:1px solid #d5dde5;border-radius:12px;padding:2rem 2.25rem;max-width:420px;width:100%;box-shadow:0 1px 3px rgba(63,68,75,0.08),0 4px 14px rgba(63,68,75,0.06)}
+    .logo{display:block;margin:0 auto 1.25rem;height:44px}
+    h1{margin:0 0 0.25rem;font-size:0.6875rem;font-weight:700;letter-spacing:0.14em;text-transform:uppercase;color:#5a6572;text-align:center}
+    h2{margin:0 0 1.25rem;font-size:1.15rem;font-weight:700;text-align:center;color:#1a1f26}
+    label{display:block;font-size:0.8125rem;font-weight:600;color:#3d4654;margin-bottom:0.4rem}
+    input{width:100%;font:inherit;color:#1a1f26;background:#fff;border:1px solid #9aa8b6;border-radius:6px;padding:0.65rem 0.8rem;min-height:44px;font-family:ui-monospace,"Cascadia Code",Consolas,monospace;font-size:0.8125rem}
+    input:focus{outline:none;border-color:#1d4ed8;box-shadow:0 0 0 2px #fff,0 0 0 5px #1d4ed8}
+    button{width:100%;margin-top:1rem;display:flex;align-items:center;justify-content:center;font:inherit;font-weight:600;font-size:0.875rem;cursor:pointer;border-radius:6px;padding:0.65rem 1.15rem;min-height:44px;border:1px solid rgba(0,0,0,0.12);background:#3f444b;color:#fff;box-shadow:0 1px 2px rgba(63,68,75,0.15);transition:background 0.15s}
+    button:hover{background:#32373d}
+    .hint{margin-top:1rem;font-size:0.8125rem;color:#5a6572;text-align:center}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <img class="logo" src="https://eship.com.br/wp-content/uploads/e-Ship-Poditiva-300x96.png" alt="e-Ship" width="200" height="64"/>
+    <h1>MCP Hub</h1>
+    <h2>Autenticação</h2>
+    ${errorHtml}
+    <form method="POST" action="/oauth/submit-key">
+      <input type="hidden" name="session" value="${sessionId}"/>
+      <label for="apikey">API Key Secret</label>
+      <input type="password" id="apikey" name="apikey" placeholder="Cole o secret da API key aqui" required autofocus/>
+      <button type="submit">Conectar</button>
+    </form>
+    <p class="hint">Obtenha o secret no painel de administração em Usuários → API keys.</p>
+  </div>
+</body>
+</html>`);
+  });
+
+  // --- OAuth: submit API key ---
+  app.post(
+    "/oauth/submit-key",
+    express.urlencoded({ extended: false }),
+    async (req: Request, res: Response) => {
+      const sessionId = String((req.body as Record<string, string>).session ?? "").trim();
+      const apikey = String((req.body as Record<string, string>).apikey ?? "").trim();
+      const session = oauthSessions.get(sessionId);
+      if (!session) {
+        res.status(400).type("text/html").send("<h1>Sessão expirada</h1><p>Tente conectar novamente pelo Cursor/Claude.</p>");
+        return;
+      }
+      await hubUserStore.load();
+      const apiToken = hubUserStore.getApiTokenBySecret(apikey);
+      if (!apiToken) {
+        const origin = oauthPublicOrigin(req);
+        res.redirect(302, `${origin}/oauth/login?session=${encodeURIComponent(sessionId)}&error=invalid`);
+        return;
+      }
+      oauthSessions.delete(sessionId);
+      const code = randomUUID();
+      oauthCodes.set(code, {
+        tokenId: apiToken.id,
+        apiKeySecret: apikey,
+        redirectUri: session.redirectUri,
+        codeChallenge: session.codeChallenge,
+        codeChallengeMethod: session.codeChallengeMethod,
+        createdAt: Date.now(),
+      });
+      pushSystemLog({
+        level: "info",
+        source: "mcp",
+        code: "OAUTH_KEY_AUTHENTICATED",
+        message: `OAuth: API key autenticada para token "${apiToken.id}" (label: ${apiToken.label}).`,
+        tokenId: apiToken.id,
+      });
+      try {
+        const target = new URL(session.redirectUri);
+        target.searchParams.set("code", code);
+        if (session.state) target.searchParams.set("state", session.state);
+        res.redirect(302, target.toString());
+      } catch {
+        res.status(400).type("application/json").json({ error: "invalid_request", error_description: "redirect_uri inválido." });
+      }
+    },
+  );
+
+  // --- OAuth: token exchange ---
   app.post(
     "/oauth/token",
     express.urlencoded({ extended: false }),
     (req: Request, res: Response) => {
       const p = req.body as Record<string, string | undefined>;
       const grant = p.grant_type;
-      if (grant === "authorization_code" && p.code === oauthAuthCodeStub) {
+
+      if (grant === "authorization_code") {
+        const codeVal = p.code ?? "";
+        const codeEntry = oauthCodes.get(codeVal);
+        if (!codeEntry || Date.now() - codeEntry.createdAt > OAUTH_CODE_TTL) {
+          oauthCodes.delete(codeVal);
+          res.status(400).type("application/json").json({
+            error: "invalid_grant",
+            error_description: "Código de autorização inválido ou expirado.",
+          });
+          return;
+        }
+
+        if (codeEntry.codeChallengeMethod === "S256" && codeEntry.codeChallenge) {
+          const verifier = p.code_verifier ?? "";
+          const computed = createHash("sha256").update(verifier).digest("base64url");
+          if (computed !== codeEntry.codeChallenge) {
+            oauthCodes.delete(codeVal);
+            res.status(400).type("application/json").json({
+              error: "invalid_grant",
+              error_description: "code_verifier inválido (PKCE).",
+            });
+            return;
+          }
+        }
+
+        oauthCodes.delete(codeVal);
+        const accessToken = randomUUID();
+        const refreshToken = `refresh-${randomUUID()}`;
+        oauthAccessTokens.set(accessToken, {
+          tokenId: codeEntry.tokenId,
+          apiKeySecret: codeEntry.apiKeySecret,
+          createdAt: Date.now(),
+        });
+        oauthAccessTokens.set(refreshToken, {
+          tokenId: codeEntry.tokenId,
+          apiKeySecret: codeEntry.apiKeySecret,
+          createdAt: Date.now(),
+        });
         res.type("application/json").json({
-          access_token: oauthAccessStub,
+          access_token: accessToken,
           token_type: "Bearer",
-          expires_in: 86_400,
-          refresh_token: oauthRefreshStub,
+          expires_in: Math.floor(OAUTH_ACCESS_TTL / 1000),
+          refresh_token: refreshToken,
         });
         return;
       }
-      if (grant === "refresh_token" && p.refresh_token === oauthRefreshStub) {
+
+      if (grant === "refresh_token") {
+        const rt = p.refresh_token ?? "";
+        const rtEntry = oauthAccessTokens.get(rt);
+        if (!rtEntry) {
+          res.status(400).type("application/json").json({
+            error: "invalid_grant",
+            error_description: "Refresh token inválido ou expirado.",
+          });
+          return;
+        }
+        const newAccessToken = randomUUID();
+        oauthAccessTokens.set(newAccessToken, {
+          tokenId: rtEntry.tokenId,
+          apiKeySecret: rtEntry.apiKeySecret,
+          createdAt: Date.now(),
+        });
         res.type("application/json").json({
-          access_token: oauthAccessStub,
+          access_token: newAccessToken,
           token_type: "Bearer",
-          expires_in: 86_400,
+          expires_in: Math.floor(OAUTH_ACCESS_TTL / 1000),
         });
         return;
       }
+
       if (grant === "client_credentials") {
+        const accessToken = randomUUID();
         res.type("application/json").json({
-          access_token: oauthAccessStub,
+          access_token: accessToken,
           token_type: "Bearer",
           expires_in: 86_400,
         });
         return;
       }
+
       res.status(400).type("application/json").json({
         error: "unsupported_grant_type",
         error_description:
-          "Este hub só aceita o fluxo de teste authorization_code (código fixo), refresh_token ou client_credentials.",
+          "Tipos suportados: authorization_code, refresh_token, client_credentials.",
       });
     },
   );
@@ -1468,6 +1686,7 @@ async function serveHttp() {
           hubConfigMerged,
           moduleTag,
           hubUserStore,
+          resolveTokenIdFromBearer,
         );
         if (!resolvedCfg.ok) {
           if (!res.headersSent) {
@@ -1483,35 +1702,22 @@ async function serveHttp() {
           return;
         }
         const { hubCfg, extraEnvByServer, tokenId: resolvedTokenId } = resolvedCfg;
+        const cleanedCfg = stripServersWithMissingPlaceholders(
+          hubCfg,
+          sessionEnv,
+          extraEnvByServer,
+          { tokenId: resolvedTokenId },
+        );
         let upstreams: Upstream[];
-        try {
-          assertEnvPlaceholdersForConfig(
-            hubCfg,
-            sessionEnv,
-            extraEnvByServer,
-          );
+        if (Object.keys(cleanedCfg.mcpServers).length === 0) {
+          upstreams = [];
+        } else {
           upstreams = await connectAllUpstreams(
-            hubCfg,
+            cleanedCfg,
             sessionEnv,
             extraEnvByServer,
             resolvedTokenId,
           );
-        } catch (e: unknown) {
-          const msg = e instanceof Error ? e.message : String(e);
-          log("initialize: env / credenciais e-ship incompletos:", e);
-          if (!res.headersSent) {
-            sendJsonRpcError(
-              res,
-              401,
-              rpcId,
-              -32_001,
-              "MCP_INIT_UPSTREAM_CONNECTION_FAILED",
-              msg,
-              e,
-              resolvedTokenId,
-            );
-          }
-          return;
         }
         const hub = buildHubMcpServer(upstreams);
         transport = new StreamableHTTPServerTransport({
@@ -1618,6 +1824,7 @@ async function serveHttp() {
         hubConfigMergedSse,
         moduleTag,
         hubUserStore,
+        resolveTokenIdFromBearer,
       );
       if (!resolvedSse.ok) {
         if (!res.headersSent) {
@@ -1628,26 +1835,23 @@ async function serveHttp() {
         }
         return;
       }
-      const { hubCfg: hubCfgSse, extraEnvByServer: extraSse } = resolvedSse;
+      const { hubCfg: hubCfgSse, extraEnvByServer: extraSse, tokenId: sseTokenId } = resolvedSse;
+      const cleanedSse = stripServersWithMissingPlaceholders(
+        hubCfgSse,
+        sessionEnv,
+        extraSse,
+        { tokenId: sseTokenId },
+      );
       let upstreams: Upstream[];
-      try {
-        assertEnvPlaceholdersForConfig(
-          hubCfgSse,
-          sessionEnv,
-          extraSse,
-        );
+      if (Object.keys(cleanedSse.mcpServers).length === 0) {
+        upstreams = [];
+      } else {
         upstreams = await connectAllUpstreams(
-          hubCfgSse,
+          cleanedSse,
           sessionEnv,
           extraSse,
+          sseTokenId,
         );
-      } catch (e: unknown) {
-        const msg = e instanceof Error ? e.message : String(e);
-        log("SSE legado GET: credenciais e-ship incompletas:", e);
-        if (!res.headersSent) {
-          res.status(401).type("text/plain").send(msg);
-        }
-        return;
       }
       const hub = buildHubMcpServer(upstreams);
       const sseT = new SSEServerTransport(`${basePath}/messages`, res);
@@ -1789,7 +1993,7 @@ async function main() {
 
   try {
     assertEshipApiBaseUrlUsesHttpOrHttps(process.env as EnvLookup);
-    assertEnvPlaceholdersForConfig(config, process.env);
+    stripServersWithMissingPlaceholders(config, process.env, undefined, { throwOnMissing: true });
   } catch (e: unknown) {
     log(e);
     process.exit(1);
