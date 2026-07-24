@@ -42,7 +42,9 @@ import { HubUserStore } from "./admin/store.js";
 import type { HubConnectionOverrides, TokenMcpRecord } from "./admin/types.js";
 import {
   buildHubToolsListEntries,
+  enrichHubToolInputSchema,
   hubToolListDescription,
+  jsonSchemaToZodPassthrough,
   normalizeHubToolInputSchema,
   type HubExposedToolMeta,
 } from "./hubToolSchema.js";
@@ -121,10 +123,25 @@ export type Upstream = {
   toolMeta: Map<string, HubExposedToolMeta>;
 };
 
-/** Validação no hub: aceita qualquer body; o schema anunciado vem do tools/list. */
-const passthroughArgs = z.object({}).passthrough();
-
 const ENV_VAR_REF = /\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g;
+
+/** Argumentos a enviar ao filho: se só veio o fallback `body`, expande para o topo. */
+export function argumentsForUpstream(
+  args: Record<string, unknown> | undefined | null,
+): Record<string, unknown> {
+  const a = args ?? {};
+  const keys = Object.keys(a);
+  if (
+    keys.length === 1 &&
+    keys[0] === "body" &&
+    a.body !== null &&
+    typeof a.body === "object" &&
+    !Array.isArray(a.body)
+  ) {
+    return { ...(a.body as Record<string, unknown>) };
+  }
+  return a;
+}
 
 function envVarNamesInString(s: string): string[] {
   return [...s.matchAll(new RegExp(ENV_VAR_REF.source, "g"))].map((m) => m[1]!);
@@ -930,16 +947,17 @@ export function buildHubMcpServer(upstreams: Upstream[]): McpServer {
           originalName,
           meta.description,
         ),
-        // Validação frouxa: não bloquear body válido do filho por conversão Zod.
-        // O schema anunciado à IA vem do handler tools/list abaixo.
-        inputSchema: passthroughArgs,
+        // Schema do filho (ou fallback body) → a IA vê os campos; passthrough mantém extras.
+        inputSchema: jsonSchemaToZodPassthrough(meta.inputSchema),
         ...(meta.annotations ? { annotations: meta.annotations } : {}),
       },
       async (args) => {
         return serialize(async () => {
           const result = await upstream.callTool({
             name: originalName,
-            arguments: (args as Record<string, unknown>) ?? {},
+            arguments: argumentsForUpstream(
+              args as Record<string, unknown> | undefined,
+            ),
           });
           if ("content" in result && Array.isArray(result.content)) {
             return result as CallToolResult;
@@ -957,8 +975,7 @@ export function buildHubMcpServer(upstreams: Upstream[]): McpServer {
     );
   }
 
-  // O McpServer serializa inputSchema a partir do Zod (passthrough → properties: {}).
-  // Substituímos tools/list para anunciar o JSON Schema original de cada filho.
+  // tools/list com JSON Schema enriquecido (fiel ao filho + fallback se vazio).
   const listTools = buildHubToolsListEntries(
     [
       {
@@ -1073,7 +1090,7 @@ export async function connectAllUpstreams(
       toolMeta.set(exposed, {
         originalName: t.name,
         description: t.description,
-        inputSchema: normalizeHubToolInputSchema(t.inputSchema),
+        inputSchema: enrichHubToolInputSchema(t.inputSchema),
         annotations: t.annotations,
       });
     }

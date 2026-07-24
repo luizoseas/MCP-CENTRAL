@@ -1,8 +1,12 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { z } from "zod";
+import { argumentsForUpstream } from "./hub.js";
 import {
   buildHubToolsListEntries,
+  enrichHubToolInputSchema,
   hubToolListDescription,
+  jsonSchemaToZodPassthrough,
   normalizeHubToolInputSchema,
 } from "./hubToolSchema.js";
 
@@ -31,6 +35,70 @@ describe("normalizeHubToolInputSchema", () => {
       (normalized as { additionalProperties?: boolean }).additionalProperties,
       true,
     );
+  });
+});
+
+describe("enrichHubToolInputSchema", () => {
+  it("injeta body quando o filho não declara campos", () => {
+    const enriched = enrichHubToolInputSchema({
+      type: "object",
+      properties: {},
+    });
+    assert.ok(enriched.properties?.body);
+    assert.equal(
+      (enriched as { additionalProperties?: boolean }).additionalProperties,
+      true,
+    );
+  });
+
+  it("não substitui properties existentes", () => {
+    const enriched = enrichHubToolInputSchema({
+      type: "object",
+      properties: { sku: { type: "string" } },
+      required: ["sku"],
+    });
+    assert.ok(enriched.properties?.sku);
+    assert.equal(enriched.properties?.body, undefined);
+  });
+});
+
+describe("jsonSchemaToZodPassthrough", () => {
+  it("aceita e repassa body e campos extra", () => {
+    const schema = jsonSchemaToZodPassthrough({
+      type: "object",
+      properties: {
+        nome: { type: "string", description: "nome" },
+      },
+      required: ["nome"],
+    });
+    const parsed = schema.safeParse({ nome: "x", extra: 1 });
+    assert.equal(parsed.success, true);
+    if (parsed.success) {
+      assert.equal(parsed.data.nome, "x");
+      assert.equal((parsed.data as { extra?: number }).extra, 1);
+    }
+    const json = z.toJSONSchema(schema);
+    assert.ok(
+      json.properties &&
+        typeof json.properties === "object" &&
+        "nome" in json.properties,
+    );
+  });
+});
+
+describe("argumentsForUpstream", () => {
+  it("expande único campo body para o topo", () => {
+    assert.deepEqual(argumentsForUpstream({ body: { a: 1, b: "x" } }), {
+      a: 1,
+      b: "x",
+    });
+  });
+
+  it("mantém arguments flat sem alteração", () => {
+    assert.deepEqual(argumentsForUpstream({ a: 1, body: { z: 9 } }), {
+      a: 1,
+      body: { z: 9 },
+    });
   });
 });
 

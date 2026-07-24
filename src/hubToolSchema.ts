@@ -4,6 +4,7 @@
  * não sabia quais campos (body) enviar em vários webServices.
  */
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
+import { z } from "zod";
 
 export type HubToolInputSchema = Tool["inputSchema"];
 
@@ -13,6 +14,10 @@ export type HubExposedToolMeta = {
   inputSchema: HubToolInputSchema;
   annotations?: Tool["annotations"];
 };
+
+function propertyCount(schema: HubToolInputSchema): number {
+  return Object.keys(schema.properties ?? {}).length;
+}
 
 /** Garante shape MCP (type: object) sem descartar properties/required/$defs. */
 export function normalizeHubToolInputSchema(
@@ -37,6 +42,88 @@ export function normalizeHubToolInputSchema(
     out.required = s.required.filter((r): r is string => typeof r === "string");
   }
   return out;
+}
+
+/**
+ * Se o filho não declara campos, injeta `body` + additionalProperties para a IA
+ * conseguir enviar JSON. Não altera schemas que já têm properties.
+ */
+export function enrichHubToolInputSchema(schema: unknown): HubToolInputSchema {
+  const normalized = normalizeHubToolInputSchema(schema);
+  if (propertyCount(normalized) > 0) {
+    return {
+      ...normalized,
+      additionalProperties:
+        (normalized as { additionalProperties?: unknown }).additionalProperties ??
+        true,
+    };
+  }
+  return {
+    type: "object",
+    properties: {
+      body: {
+        type: "object",
+        description:
+          "Payload JSON do web service. Quando o MCP filho não declara campos, envie aqui o objeto esperado pela API (ou use campos no topo do arguments — additionalProperties está activo).",
+        additionalProperties: true,
+      },
+    },
+    additionalProperties: true,
+  };
+}
+
+function propToZod(prop: unknown): z.ZodTypeAny {
+  if (!prop || typeof prop !== "object" || Array.isArray(prop)) {
+    return z.unknown();
+  }
+  const p = prop as Record<string, unknown>;
+  let base: z.ZodTypeAny;
+  const t = p.type;
+  if (t === "string") {
+    base = z.string();
+  } else if (t === "number") {
+    base = z.number();
+  } else if (t === "integer") {
+    base = z.number().int();
+  } else if (t === "boolean") {
+    base = z.boolean();
+  } else if (t === "array") {
+    base = z.array(propToZod(p.items));
+  } else if (t === "object" || p.properties) {
+    if (p.properties && typeof p.properties === "object") {
+      base = jsonSchemaToZodPassthrough(p);
+    } else {
+      base = z.record(z.string(), z.unknown());
+    }
+  } else if (t === "null") {
+    base = z.null();
+  } else {
+    base = z.unknown();
+  }
+  if (typeof p.description === "string" && p.description.trim()) {
+    base = base.describe(p.description);
+  }
+  return base;
+}
+
+/**
+ * Converte JSON Schema do filho em Zod com .passthrough() para registerTool.
+ * Assim o SDK anuncia properties reais (não só o override de tools/list).
+ */
+export function jsonSchemaToZodPassthrough(schema: unknown): z.ZodObject {
+  const s = enrichHubToolInputSchema(schema);
+  const props = s.properties ?? {};
+  const required = new Set(
+    Array.isArray(s.required)
+      ? s.required.filter((r): r is string => typeof r === "string")
+      : [],
+  );
+  const shape: Record<string, z.ZodTypeAny> = {};
+  for (const [key, prop] of Object.entries(props)) {
+    const field = propToZod(prop);
+    shape[key] = required.has(key) ? field : field.optional();
+  }
+  return z.object(shape).passthrough();
 }
 
 export function hubToolListDescription(
@@ -67,7 +154,7 @@ export function buildHubToolsListEntries(
   const tools: Tool[] = metaTools.map((t) => ({
     name: t.name,
     description: t.description,
-    inputSchema: normalizeHubToolInputSchema(t.inputSchema),
+    inputSchema: enrichHubToolInputSchema(t.inputSchema),
   }));
 
   for (const row of exposed) {
@@ -79,7 +166,7 @@ export function buildHubToolsListEntries(
         row.meta.originalName,
         row.meta.description,
       ),
-      inputSchema: normalizeHubToolInputSchema(row.meta.inputSchema),
+      inputSchema: enrichHubToolInputSchema(row.meta.inputSchema),
       ...(row.meta.annotations ? { annotations: row.meta.annotations } : {}),
     });
   }
