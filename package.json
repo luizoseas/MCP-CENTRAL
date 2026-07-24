@@ -8,7 +8,7 @@
     "hub": "node --env-file=.env --import tsx src/hub.ts",
     "build": "tsc",
     "start": "node --env-file=.env dist/hub.js",
-    "test": "node --import tsx --test src/admin/store.test.ts src/admin/ldapAuth.test.ts src/hub.buildHubConfigForApiToken.test.ts src/hub.hubToolName.test.ts"
+    "test": "node --import tsx --test src/admin/store.test.ts src/admin/ldapAuth.test.ts src/hub.buildHubConfigForApiToken.test.ts src/hub.hubToolName.test.ts src/hubToolSchema.test.ts"
   },
   "keywords": [],
   "author": "",

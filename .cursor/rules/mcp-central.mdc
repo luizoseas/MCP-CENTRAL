@@ -1,0 +1,18 @@
+---
+description: Convenções do hub MCP-CENTRAL (TypeScript, config, e-ship, admin)
+alwaysApply: true
+---
+
+# MCP-CENTRAL
+
+- Projeto: hub que agrega MCPs (stdio / Streamable HTTP) + admin + tokens.
+- Código em `src/`; entry `src/hub.ts`. ESM + `NodeNext`; imports relativos com sufixo `.js`.
+- Config: `mcp-hub.config.json` → `mcpServers` com `command`/`args`/`env` **ou** `streamableHttp.url` + `headers`.
+- Placeholders `${VAR}` expandem do `process.env` e, em HTTP, de headers/`_meta` do initialize.
+- Prefixo WMS `eship-wms-` → `ESHIP_API_KEY_WMS`; TAR `eship-tar-` → `ESHIP_API_KEY_TAR`.
+- Tools expostas: `key__toolName` (sanitizado); truncagem + hash se > `MCP_HUB_TOOL_NAME_MAX_LEN` (default 60).
+- `tools/list` deve reexpor o `inputSchema` dos filhos (`hubToolSchema.ts`); senão a IA não envia o body.
+- Admin em `/hub-admin`; não misturar `MCP_HUB_ADMIN_PASSWORD` com segredos LDAP no código.
+- Não commitar `.env`, keys e-ship, nem passwords. Usar `.env.example` como referência.
+- Após alterar hubToolName, tokens ou LDAP: `npm test`.
+- Responder em português; mudanças focadas no pedido.

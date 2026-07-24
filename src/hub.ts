@@ -21,6 +21,7 @@ import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import {
   type CallToolResult,
+  ListToolsRequestSchema,
   isInitializeRequest,
 } from "@modelcontextprotocol/sdk/types.js";
 import express, { type Request, type Response } from "express";
@@ -39,6 +40,12 @@ import {
 import { pushSystemLog } from "./systemLog.js";
 import { HubUserStore } from "./admin/store.js";
 import type { HubConnectionOverrides, TokenMcpRecord } from "./admin/types.js";
+import {
+  buildHubToolsListEntries,
+  hubToolListDescription,
+  normalizeHubToolInputSchema,
+  type HubExposedToolMeta,
+} from "./hubToolSchema.js";
 
 const HubStdioServerDefSchema = z.object({
   command: z.string(),
@@ -108,9 +115,13 @@ export type Upstream = {
   key: string;
   client: Client;
   transport: StdioClientTransport | StreamableHTTPClientTransport;
+  /** exposedName → nome original no upstream */
   tools: Map<string, string>;
+  /** Metadados do tools/list do filho (inputSchema real para a IA). */
+  toolMeta: Map<string, HubExposedToolMeta>;
 };
 
+/** Validação no hub: aceita qualquer body; o schema anunciado vem do tools/list. */
 const passthroughArgs = z.object({}).passthrough();
 
 const ENV_VAR_REF = /\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g;
@@ -847,15 +858,25 @@ export function buildHubMcpServer(upstreams: Upstream[]): McpServer {
 
   const routing = new Map<
     string,
-    { upstream: Client; originalName: string; serverKey: string }
+    {
+      upstream: Client;
+      originalName: string;
+      serverKey: string;
+      meta: HubExposedToolMeta;
+    }
   >();
 
   for (const u of upstreams) {
     for (const [exposed, original] of u.tools) {
+      const meta = u.toolMeta.get(exposed) ?? {
+        originalName: original,
+        inputSchema: normalizeHubToolInputSchema(undefined),
+      };
       routing.set(exposed, {
         upstream: u.client,
         originalName: original,
         serverKey: u.key,
+        meta,
       });
     }
   }
@@ -870,17 +891,20 @@ export function buildHubMcpServer(upstreams: Upstream[]): McpServer {
         "Este hub expõe apenas ferramentas (Tools) agregadas de vários servidores MCP.",
         "Não há prompts nem resources neste hub — no Cursor só a seção Tools mostrará entradas.",
         `Cada nome é prefixado como SERVIDOR__ferramenta (máx. ${HUB_EXPOSED_TOOL_NAME_MAX_LEN} caracteres com MCP_HUB_TOOL_NAME_MAX_LEN; nomes longos ganham sufixo _HASH). Usa mcp_hub__meta para o mapa completo.`,
+        "O tools/list reexpõe o inputSchema (body/argumentos) de cada MCP filho — a IA deve preencher esses campos; o hub repassa o JSON tal como recebido.",
         "e-ship (HTTP): X-Eship-Api-Key-WMS / X-Eship-Api-Key-TAR (chaves por módulo) ou X-Eship-Api-Key; URL base X-Eship-Api-Base-Url / X-Api-Base-Url. API-WMS/APIKEY-TAR = só um módulo. _meta: eshipApiKeyWms, eshipApiKeyTar, eshipApiBaseUrl. stdio: env.",
         "X-MCP-Hub-User-Token: secret de API token (painel admin); MCPs só por URL directa ignoram o filtro WMS/TAR.",
       ].join("\n"),
     },
   );
 
+  const metaDescription =
+    "Lista servidores conectados e o mapeamento nome do hub → ferramenta original no upstream.";
+
   hub.registerTool(
     "mcp_hub__meta",
     {
-      description:
-        "Lista servidores conectados e o mapeamento nome do hub → ferramenta original no upstream.",
+      description: metaDescription,
     },
     async () => {
       const lines: string[] = [];
@@ -896,13 +920,20 @@ export function buildHubMcpServer(upstreams: Upstream[]): McpServer {
     },
   );
 
-  for (const [hubName, { upstream, originalName, serverKey }] of routing) {
+  for (const [hubName, { upstream, originalName, serverKey, meta }] of routing) {
     hub.registerTool(
       hubName,
       {
         title: hubName,
-        description: `[${serverKey}] → ${originalName} (argumentos repassados; veja documentação do servidor original).`,
+        description: hubToolListDescription(
+          serverKey,
+          originalName,
+          meta.description,
+        ),
+        // Validação frouxa: não bloquear body válido do filho por conversão Zod.
+        // O schema anunciado à IA vem do handler tools/list abaixo.
         inputSchema: passthroughArgs,
+        ...(meta.annotations ? { annotations: meta.annotations } : {}),
       },
       async (args) => {
         return serialize(async () => {
@@ -925,6 +956,26 @@ export function buildHubMcpServer(upstreams: Upstream[]): McpServer {
       },
     );
   }
+
+  // O McpServer serializa inputSchema a partir do Zod (passthrough → properties: {}).
+  // Substituímos tools/list para anunciar o JSON Schema original de cada filho.
+  const listTools = buildHubToolsListEntries(
+    [
+      {
+        name: "mcp_hub__meta",
+        description: metaDescription,
+        inputSchema: { type: "object", properties: {} },
+      },
+    ],
+    [...routing.entries()].map(([name, row]) => ({
+      name,
+      serverKey: row.serverKey,
+      meta: row.meta,
+    })),
+  );
+  hub.server.setRequestHandler(ListToolsRequestSchema, () => ({
+    tools: listTools,
+  }));
 
   return hub;
 }
@@ -1015,11 +1066,18 @@ export async function connectAllUpstreams(
 
     const toolList = await listAllTools(client);
     const tools = new Map<string, string>();
+    const toolMeta = new Map<string, HubExposedToolMeta>();
     for (const t of toolList) {
       const exposed = allocateUniqueHubToolName(key, t.name, usedHubToolNames);
       tools.set(exposed, t.name);
+      toolMeta.set(exposed, {
+        originalName: t.name,
+        description: t.description,
+        inputSchema: normalizeHubToolInputSchema(t.inputSchema),
+        annotations: t.annotations,
+      });
     }
-    upstreams.push({ key, client, transport, tools });
+    upstreams.push({ key, client, transport, tools, toolMeta });
     log(`Conectado "${key}": ${toolList.length} ferramenta(s).`);
     pushSystemLog({
       level: "info",
